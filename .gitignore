@@ -1,2 +1,6 @@
 /.vscode
 sample.docx
+
+# Added by cargo
+
+/target
