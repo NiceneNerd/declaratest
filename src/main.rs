@@ -171,10 +171,24 @@ fn parse_question(q: &str, section_type: &Option<SectionType>) -> Option<Questio
 fn generate_docx(test_data: &TestData, output_path: &str, _template_path: Option<&str>) -> Result<()> {
     let mut docx = Docx::new();
     
+    // Set page layout
+    docx = set_page_layout(docx);
+    
+    // Add header
+    docx = add_header(docx);
+    
     // Add subject and title
     docx = docx
-        .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&format!("{} Test", test_data.subject)).style("Subtitle")))
-        .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&test_data.title).style("Title")));
+        .add_paragraph(
+            Paragraph::new()
+                .add_run(Run::new().add_text(&format!("{} Test", test_data.subject)).size(14).bold())
+                .align(AlignmentType::Center)
+        )
+        .add_paragraph(
+            Paragraph::new()
+                .add_run(Run::new().add_text(&test_data.title).size(16).bold())
+                .align(AlignmentType::Center)
+        );
     
     // Add sections
     for section in &test_data.sections {
@@ -188,19 +202,46 @@ fn generate_docx(test_data: &TestData, output_path: &str, _template_path: Option
     Ok(())
 }
 
+fn set_page_layout(mut docx: Docx) -> Docx {
+    // Set page size to US Letter (8.5" x 11")
+    docx = docx.page_size(12240, 15840); // in twentieths of a point
+    
+    // Set margins to 0.75 inches
+    docx = docx.page_margin(PageMargin::new()
+        .top(1080)   // 0.75 inches in twentieths of a point
+        .right(1080)
+        .bottom(1080)
+        .left(1080));
+    
+    docx
+}
+
+fn add_header(mut docx: Docx) -> Docx {
+    // Create header with Name and Date fields
+    let header = Header::new().add_paragraph(
+        Paragraph::new()
+            .add_run(Run::new().add_text("Name: ________________________"))
+            .add_run(Run::new().add_text("    "))
+            .add_run(Run::new().add_text("Date: ________________"))
+            .align(AlignmentType::Right)
+    );
+    
+    docx = docx.header(header);
+    docx
+}
+
 fn add_section(mut docx: Docx, section: &Section) -> Result<Docx> {
     // Add section header
     docx = docx.add_paragraph(
         Paragraph::new()
-            .add_run(Run::new().add_text(&section.name))
-            .style("Heading2")
+            .add_run(Run::new().add_text(&section.name).size(12).bold())
     );
     
     // Add separate sheet notice if needed
     if matches!(section.section_type, Some(SectionType::Long)) && section.separate_sheet {
         docx = docx.add_paragraph(
             Paragraph::new()
-                .add_run(Run::new().add_text("Use a separate sheet of paper").italic())
+                .add_run(Run::new().add_text("Use a separate sheet of paper").italic().size(10))
         );
     }
     
@@ -234,10 +275,10 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Result<Docx> {
     for (i, question) in section.questions.iter().enumerate() {
         match question {
             Question::Text { text, lines } => {
-                // Add numbered question
+                // Add numbered question with markdown parsing
+                let question_text = format!("{}. {}", i + 1, text);
                 docx = docx.add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text(&format!("{}. {}", i + 1, text)))
+                    parse_markdown_to_paragraph(&question_text)
                 );
                 
                 // Add blank lines for answers
@@ -245,7 +286,7 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Result<Docx> {
                 for _ in 0..line_count {
                     docx = docx.add_paragraph(
                         Paragraph::new()
-                            .add_run(Run::new().add_text("_".repeat(50)))
+                            .add_run(Run::new().add_text("_".repeat(50)).underline("single"))
                     );
                 }
             }
@@ -259,10 +300,10 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Result<Docx> {
     for (i, question) in section.questions.iter().enumerate() {
         match question {
             Question::Text { text, lines } => {
-                // Add numbered question
+                // Add numbered question with markdown parsing
+                let question_text = format!("{}. {}", i + 1, text);
                 docx = docx.add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text(&format!("{}. {}", i + 1, text)))
+                    parse_markdown_to_paragraph(&question_text)
                 );
                 
                 // Add blank lines for answers if not using separate sheet
@@ -271,7 +312,7 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Result<Docx> {
                     for _ in 0..line_count {
                         docx = docx.add_paragraph(
                             Paragraph::new()
-                                .add_run(Run::new().add_text("_".repeat(50)))
+                                .add_run(Run::new().add_text("_".repeat(50)).underline("single"))
                         );
                     }
                 }
@@ -280,6 +321,61 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Result<Docx> {
         }
     }
     Ok(docx)
+}
+
+// Simple markdown parser for **bold**, *italic*, _italic_
+fn parse_markdown_to_paragraph(text: &str) -> Paragraph {
+    let mut paragraph = Paragraph::new();
+    let bold_regex = Regex::new(r"\*\*([^*]+)\*\*").unwrap();
+    let italic_regex = Regex::new(r"[\*_]([^*_]+)[\*_]").unwrap();
+    
+    let mut current_pos = 0;
+    let mut matches: Vec<(usize, usize, bool)> = Vec::new(); // (start, end, is_bold)
+    
+    // Find bold matches
+    for mat in bold_regex.find_iter(text) {
+        matches.push((mat.start(), mat.end(), true));
+    }
+    
+    // Find italic matches (excluding those already matched as bold)
+    for mat in italic_regex.find_iter(text) {
+        if !matches.iter().any(|(start, end, _)| mat.start() >= *start && mat.end() <= *end) {
+            matches.push((mat.start(), mat.end(), false));
+        }
+    }
+    
+    // Sort by position
+    matches.sort_by(|a, b| a.0.cmp(&b.0));
+    
+    for (start, end, is_bold) in matches {
+        // Add text before match
+        if start > current_pos {
+            paragraph = paragraph.add_run(Run::new().add_text(&text[current_pos..start]));
+        }
+        
+        // Add formatted text
+        let content = if is_bold {
+            &text[start + 2..end - 2] // Remove **
+        } else {
+            &text[start + 1..end - 1] // Remove * or _
+        };
+        
+        let run = if is_bold {
+            Run::new().add_text(content).bold()
+        } else {
+            Run::new().add_text(content).italic()
+        };
+        paragraph = paragraph.add_run(run);
+        
+        current_pos = end;
+    }
+    
+    // Add remaining text
+    if current_pos < text.len() {
+        paragraph = paragraph.add_run(Run::new().add_text(&text[current_pos..]));
+    }
+    
+    paragraph
 }
 
 fn add_matching_v_questions(mut docx: Docx, section: &Section) -> Result<Docx> {

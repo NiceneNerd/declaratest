@@ -1,5 +1,15 @@
 /.vscode
 sample.docx
+test_rust.docx
+test_rust_enhanced.docx
+
+# Rust build artifacts
+/target/
+Cargo.lock
+
+# Test output files
+test*.docx
+*.tmp
 
 # Added by cargo
 
