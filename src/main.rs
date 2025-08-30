@@ -168,8 +168,30 @@ fn parse_question(q: &str, section_type: &Option<SectionType>) -> Option<Questio
     None
 }
 
-fn generate_docx(test_data: &TestData, output_path: &str, _template_path: Option<&str>) -> Result<()> {
-    let mut docx = Docx::new();
+fn generate_docx(test_data: &TestData, output_path: &str, template_path: Option<&str>) -> Result<()> {
+    let mut docx = if let Some(template) = template_path {
+        // Try to read existing template
+        match std::fs::read(template) {
+            Ok(bytes) => {
+                match read_docx(&bytes) {
+                    Ok(template_docx) => {
+                        println!("Successfully loaded template: {}", template);
+                        template_docx
+                    }
+                    Err(e) => {
+                        eprintln!("Warning: Failed to read template {}: {}. Creating new document.", template, e);
+                        Docx::new()
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: Failed to open template file {}: {}. Creating new document.", template, e);
+                Docx::new()
+            }
+        }
+    } else {
+        Docx::new()
+    };
     
     // Set page layout
     docx = set_page_layout(docx);
