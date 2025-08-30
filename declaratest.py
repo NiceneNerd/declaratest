@@ -1,14 +1,55 @@
+#!/usr/bin/env python
+from __future__ import annotations
+
 import re
 import random
 import argparse
+from typing import TYPE_CHECKING, List, Dict, Optional, Union, Tuple, Literal, TypedDict
+
 from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
 
+if TYPE_CHECKING:  # Imported only for type checking; no runtime dependency changes
+    from docx.document import Document as DocxDocument
+    from docx.text.paragraph import Paragraph
 
-def parse_template(file_path):
-    def _parse_section(line, current_section, sections):
+
+class MatchingQuestion(TypedDict):
+    left: str
+    right: str
+
+
+class TextQuestion(TypedDict, total=False):
+    text: str
+    lines: int  # optional
+
+
+class BlankQuestion(TypedDict):
+    text: str
+
+
+SectionType = Literal["short", "long", "matching_v", "matching_h", "blanks"]
+
+
+class Section(TypedDict):
+    name: str
+    questions: List[Union[MatchingQuestion, TextQuestion, BlankQuestion]]
+    type: Optional[SectionType]
+    separate_sheet: bool
+
+
+class TestData(TypedDict):
+    subject: str
+    title: str
+    sections: List[Section]
+
+
+def parse_template(file_path: str) -> TestData:
+    def _parse_section(
+        line: str, current_section: Optional[Section], sections: List[Section]
+    ) -> Section:
         name = line.split(":", 1)[1].strip()
         if current_section:
             sections.append(current_section)
@@ -19,7 +60,9 @@ def parse_template(file_path):
             "separate_sheet": False,
         }
 
-    def _parse_question(q, current_section):
+    def _parse_question(
+        q: str, current_section: Section
+    ) -> Optional[Union[MatchingQuestion, TextQuestion, BlankQuestion]]:
         if current_section["type"] in ["matching_v", "matching_h"]:
             if "->" in q:
                 left, right = [x.strip() for x in q.split("->")]
@@ -27,7 +70,7 @@ def parse_template(file_path):
         elif current_section["type"] == "blanks":
             return {"text": q}
         else:
-            lines_count = None
+            lines_count: Optional[int] = None
             # Remove '(N line[s])' from the question text if present
             match = re.search(r"\((\d+)\s+lines?\)", q)
             if match:
@@ -38,11 +81,11 @@ def parse_template(file_path):
             return {"text": text, "lines": lines_count}
 
     with open(file_path, "r") as f:
-        lines = f.readlines()
+        lines: List[str] = f.readlines()
 
-    test = {}
-    sections = []
-    current_section = None
+    test: TestData = {"subject": "", "title": "", "sections": []}
+    sections: List[Section] = []
+    current_section: Optional[Section] = None
 
     for line in lines:
         line = line.strip()
@@ -58,7 +101,7 @@ def parse_template(file_path):
             current_section = _parse_section(line, current_section, sections)
         elif line.startswith("Type:"):
             if current_section:
-                current_section["type"] = line.split(":", 1)[1].strip()
+                current_section["type"] = line.split(":", 1)[1].strip()  # type: ignore[assignment]
         elif line.startswith("Separate Sheet:"):
             if current_section:
                 current_section["separate_sheet"] = (
@@ -78,8 +121,26 @@ def parse_template(file_path):
     return test
 
 
-def generate_docx(test_data, output_path="test.docx", template_path=None):
-    def _add_markdown_run(paragraph, text):
+def generate_docx(
+    test_data: TestData,
+    output_path: str = "test.docx",
+    template_path: Optional[str] = None,
+) -> None:
+    def _remove_leading_empty_paragraph(doc: DocxDocument) -> None:
+        # python-docx starts a new document with a single empty body paragraph.
+        # If present (and empty/whitespace-only), remove it to avoid a blank line
+        # before the first real content we add below.
+        try:
+            if doc.paragraphs and not doc.paragraphs[0].text.strip():
+                p = doc.paragraphs[0]._element
+                parent = p.getparent()
+                if parent is not None:
+                    parent.remove(p)
+        except Exception:
+            # Non-fatal: if removal fails, continue; later content will still render.
+            pass
+
+    def _add_markdown_run(paragraph: Paragraph, text: str) -> None:
         # Simple Markdown parser for **bold**, *italic*, _italic_
         pattern = r"(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)"
         pos = 0
@@ -99,7 +160,7 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
         if pos < len(text):
             paragraph.add_run(text[pos:])
 
-    def _set_page_layout(doc):
+    def _set_page_layout(doc: DocxDocument) -> None:
         section = doc.sections[0]
         section.page_width = Inches(8.5)
         section.page_height = Inches(11)
@@ -108,39 +169,43 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
         ) = Inches(0.75)
         section.different_first_page_header_footer = True
 
-    def _add_header(doc):
+    def _add_header(doc: DocxDocument) -> None:
         section = doc.sections[0]
         first_header = section.first_page_header
         header_p = first_header.paragraphs[0]
+        header_p.style.paragraph_format.space_before = Pt(12)
         header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        run = header_p.add_run("Name: ")
-        run = header_p.add_run("______________________________\u2000")
-        run.underline = True
-        run = header_p.add_run("Date: ")
-        run = header_p.add_run("______________________________")
-        run.underline = True
 
-    def _add_subject_and_title(doc, test_data):
-        doc.add_paragraph(f"{test_data['subject']} Test")
-        doc.add_heading(test_data["title"], level=1)
+        # Automated en-space generation for Name and Date fields
+        def add_label_and_blank(paragraph, label, num_spaces):
+            run = paragraph.add_run("\u2000" + label + "\u2000")
+            blank_run = paragraph.add_run("\u2000" * num_spaces)
+            blank_run.underline = True
 
-    def _add_section(doc, section):
+        add_label_and_blank(header_p, "Name:", 18)
+        add_label_and_blank(header_p, "Date:", 12)
+
+    def _add_subject_and_title(doc: DocxDocument, test_data: TestData) -> None:
+        doc.add_paragraph(f"{test_data['subject']} Test", style="Subtitle")
+        doc.add_paragraph(test_data["title"], style="Title")
+
+    def _add_section(doc: DocxDocument, section: Section) -> None:
         doc.add_heading(section["name"], level=2)
         heading_p = doc.paragraphs[-1]
-        heading_p.paragraph_format.space_after = Pt(0)
         if section["type"] == "long" and section["separate_sheet"]:
+            heading_p.paragraph_format.space_after = Pt(0)
             p = doc.add_paragraph("Use a separate sheet of paper")
             p.paragraph_format.space_before = Pt(0)
             run = p.runs[0]
             run.italic = True
             run.font.size = Pt(10)
 
-    def _add_short_questions(doc, section):
-        for q in section["questions"]:
+    def _add_short_questions(doc: DocxDocument, section: Section) -> None:
+        for q in section["questions"]:  # type: ignore[assignment]
             p = doc.add_paragraph(style="List Number")
-            _add_markdown_run(p, q["text"])
+            _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
-            num_lines = q["lines"] if q.get("lines") else 1
+            num_lines = q["lines"] if isinstance(q, dict) and q.get("lines") else 1  # type: ignore[index]
             for _ in range(num_lines):
                 blank_p = doc.add_paragraph()
                 blank_p.add_run("\t")
@@ -149,13 +214,13 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
                 run.underline = True
                 blank_p.paragraph_format.line_spacing = 2.0
 
-    def _add_long_questions(doc, section):
-        for q in section["questions"]:
+    def _add_long_questions(doc: DocxDocument, section: Section) -> None:
+        for q in section["questions"]:  # type: ignore[assignment]
             p = doc.add_paragraph(style="List Number")
-            _add_markdown_run(p, q["text"])
+            _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
             if not section["separate_sheet"]:
-                num_lines = q.get("lines", 10)
+                num_lines = q.get("lines", 10)  # type: ignore[attribute-defined-outside-init]
                 for _ in range(num_lines):
                     blank_p = doc.add_paragraph()
                     blank_p.add_run("\t")
@@ -164,19 +229,29 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
                     run.underline = True
                     blank_p.paragraph_format.line_spacing = 2.0
 
-    def _add_matching_v(doc, section):
-        pairs = [(q["left"], q["right"]) for q in section["questions"]]
+    def _add_matching_v(doc: DocxDocument, section: Section) -> None:
+        pairs: List[Tuple[str, str]] = [
+            (q["left"], q["right"]) for q in section["questions"]  # type: ignore[index]
+        ]
         random.shuffle(pairs)
-        rights, lefts = zip(*pairs) if pairs else ([], [])
+        rights: List[str]
+        lefts: List[str]
+        if pairs:
+            lefts_t, rights_t = zip(*pairs)
+            lefts, rights = list(lefts_t), list(rights_t)
+        else:
+            lefts, rights = [], []
         rights = list(rights)
         random.shuffle(rights)
         doc_section = doc.sections[0]
         usable_width = (
             doc_section.page_width - doc_section.left_margin - doc_section.right_margin
         )
-        display_rights = [f"{chr(65 + i)}. {r}" for i, r in enumerate(rights)]
-        max_right_len = max((len(s) for s in display_rights), default=0)
-        char_pt = 6.5
+        display_rights: List[str] = [
+            f"{chr(65 + i)}. {r}" for i, r in enumerate(rights)
+        ]
+        max_right_len: int = max((len(s) for s in display_rights), default=0)
+        char_pt: float = 6.5
         right_width = Pt(max_right_len * char_pt + 12)
         max_right_allowed = usable_width * 0.6
         if right_width > max_right_allowed:
@@ -210,13 +285,16 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
                 for para in cell.paragraphs:
                     para.paragraph_format.space_after = Pt(0)
 
-    def _add_matching_h(doc, section):
-        pairs = [(q["left"], q["right"]) for q in section["questions"]]
-        terms, defs = ([], [])
+    def _add_matching_h(doc: DocxDocument, section: Section) -> None:
+        pairs: List[Tuple[str, str]] = [
+            (q["left"], q["right"]) for q in section["questions"]  # type: ignore[index]
+        ]
+        terms: List[str] = []
+        defs: List[str] = []
         if pairs:
-            terms, defs = zip(*pairs)
-            terms = list(terms)
-            defs = list(defs)
+            terms_t, defs_t = zip(*pairs)
+            terms = list(terms_t)
+            defs = list(defs_t)
         n_terms = len(terms)
         if n_terms:
             best_rows = 1
@@ -294,10 +372,10 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
                 for para in cell.paragraphs:
                     para.paragraph_format.space_after = Pt(0)
 
-    def _add_blanks_questions(doc, section):
+    def _add_blanks_questions(doc: DocxDocument, section: Section) -> None:
         for q in section["questions"]:
             p = doc.add_paragraph(style="List Number")
-            text = q["text"]
+            text = q["text"]  # type: ignore[index]
             p.paragraph_format.line_spacing = 2.0  # Double-spaced for blanks section
             parts = re.split(r"(_+)", text)
             for part in parts:
@@ -308,7 +386,7 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
                 else:
                     _add_markdown_run(p, part)
 
-    def _finalize_paragraphs(doc):
+    def _finalize_paragraphs(doc: DocxDocument) -> None:
         for idx, paragraph in enumerate(doc.paragraphs):
             if paragraph.text and paragraph.text.strip().startswith(
                 "Use a separate sheet"
@@ -322,26 +400,10 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
                     except Exception:
                         pass
                 continue
-            # Preserve single-spacing for question paragraphs
-            if (
-                hasattr(paragraph, "style")
-                and getattr(paragraph.style, "name", None) == "List Number"
-            ):
-                # Do not overwrite line_spacing for question paragraphs
-                pass
-            else:
-                paragraph.paragraph_format.line_spacing = 1.5
-            parent_tag = paragraph._element.getparent().tag
-            if (
-                parent_tag
-                == "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc"
-            ):
-                paragraph.paragraph_format.space_after = Pt(0)
-            else:
-                paragraph.paragraph_format.space_after = Pt(12)
 
     doc = Document(template_path) if template_path else Document()
     _set_page_layout(doc)
+    _remove_leading_empty_paragraph(doc)
     _add_header(doc)
     _add_subject_and_title(doc, test_data)
     for section in test_data["sections"]:
@@ -361,7 +423,7 @@ def generate_docx(test_data, output_path="test.docx", template_path=None):
     doc.save(output_path)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate a DOCX test file from a template"
     )
@@ -378,7 +440,7 @@ def main():
         default=None,
         help="Path to a DOCX template file (optional)",
     )
-    args = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args()
 
     template_data = parse_template(args.input)
     generate_docx(template_data, args.output, template_path=args.template)
