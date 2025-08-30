@@ -1,0 +1,389 @@
+import re
+import random
+import argparse
+from docx import Document
+from docx.shared import Pt, Inches
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.table import WD_TABLE_ALIGNMENT
+
+
+def parse_template(file_path):
+    def _parse_section(line, current_section, sections):
+        name = line.split(":", 1)[1].strip()
+        if current_section:
+            sections.append(current_section)
+        return {
+            "name": name,
+            "questions": [],
+            "type": None,
+            "separate_sheet": False,
+        }
+
+    def _parse_question(q, current_section):
+        if current_section["type"] in ["matching_v", "matching_h"]:
+            if "->" in q:
+                left, right = [x.strip() for x in q.split("->")]
+                return {"left": left, "right": right}
+        elif current_section["type"] == "blanks":
+            return {"text": q}
+        else:
+            lines_count = None
+            # Remove '(N line[s])' from the question text if present
+            match = re.search(r"\((\d+)\s+lines?\)", q)
+            if match:
+                lines_count = int(match.group(1))
+                text = re.sub(r"\(\d+\s+lines?\)", "", q).strip()
+            else:
+                text = q.strip()
+            return {"text": text, "lines": lines_count}
+
+    with open(file_path, "r") as f:
+        lines = f.readlines()
+
+    test = {}
+    sections = []
+    current_section = None
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("# Test"):
+            continue
+        elif line.startswith("Subject:"):
+            test["subject"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Title:"):
+            test["title"] = line.split(":", 1)[1].strip()
+        elif line.startswith("## Section:"):
+            current_section = _parse_section(line, current_section, sections)
+        elif line.startswith("Type:"):
+            if current_section:
+                current_section["type"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Separate Sheet:"):
+            if current_section:
+                current_section["separate_sheet"] = (
+                    line.split(":", 1)[1].strip().lower() == "yes"
+                )
+        elif line.startswith("- "):
+            if current_section:
+                q = line[2:].strip()
+                question = _parse_question(q, current_section)
+                if question:
+                    current_section["questions"].append(question)
+
+    if current_section:
+        sections.append(current_section)
+
+    test["sections"] = sections
+    return test
+
+
+def generate_docx(test_data, output_path="test.docx", template_path=None):
+    def _add_markdown_run(paragraph, text):
+        # Simple Markdown parser for **bold**, *italic*, _italic_
+        pattern = r"(\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_)"
+        pos = 0
+        for match in re.finditer(pattern, text):
+            start, end = match.span()
+            if start > pos:
+                paragraph.add_run(text[pos:start])
+            md = text[start:end]
+            run = paragraph.add_run(md.strip("*_"))
+            if md.startswith("**") and md.endswith("**"):
+                run.bold = True
+            elif (md.startswith("*") and md.endswith("*")) or (
+                md.startswith("_") and md.endswith("_")
+            ):
+                run.italic = True
+            pos = end
+        if pos < len(text):
+            paragraph.add_run(text[pos:])
+
+    def _set_page_layout(doc):
+        section = doc.sections[0]
+        section.page_width = Inches(8.5)
+        section.page_height = Inches(11)
+        section.left_margin = section.right_margin = section.top_margin = (
+            section.bottom_margin
+        ) = Inches(0.75)
+        section.different_first_page_header_footer = True
+
+    def _add_header(doc):
+        section = doc.sections[0]
+        first_header = section.first_page_header
+        header_p = first_header.paragraphs[0]
+        header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        run = header_p.add_run("Name: ")
+        run = header_p.add_run("______________________________\u2000")
+        run.underline = True
+        run = header_p.add_run("Date: ")
+        run = header_p.add_run("______________________________")
+        run.underline = True
+
+    def _add_subject_and_title(doc, test_data):
+        doc.add_paragraph(f"{test_data['subject']} Test")
+        doc.add_heading(test_data["title"], level=1)
+
+    def _add_section(doc, section):
+        doc.add_heading(section["name"], level=2)
+        heading_p = doc.paragraphs[-1]
+        heading_p.paragraph_format.space_after = Pt(0)
+        if section["type"] == "long" and section["separate_sheet"]:
+            p = doc.add_paragraph("Use a separate sheet of paper")
+            p.paragraph_format.space_before = Pt(0)
+            run = p.runs[0]
+            run.italic = True
+            run.font.size = Pt(10)
+
+    def _add_short_questions(doc, section):
+        for q in section["questions"]:
+            p = doc.add_paragraph(style="List Number")
+            _add_markdown_run(p, q["text"])
+            p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
+            num_lines = q["lines"] if q.get("lines") else 1
+            for _ in range(num_lines):
+                blank_p = doc.add_paragraph()
+                blank_p.add_run("\t")
+                blank_p.paragraph_format.tab_stops.add_tab_stop(Inches(7))
+                run = blank_p.runs[-1]
+                run.underline = True
+                blank_p.paragraph_format.line_spacing = 2.0
+
+    def _add_long_questions(doc, section):
+        for q in section["questions"]:
+            p = doc.add_paragraph(style="List Number")
+            _add_markdown_run(p, q["text"])
+            p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
+            if not section["separate_sheet"]:
+                num_lines = q.get("lines", 10)
+                for _ in range(num_lines):
+                    blank_p = doc.add_paragraph()
+                    blank_p.add_run("\t")
+                    blank_p.paragraph_format.tab_stops.add_tab_stop(Inches(7))
+                    run = blank_p.runs[-1]
+                    run.underline = True
+                    blank_p.paragraph_format.line_spacing = 2.0
+
+    def _add_matching_v(doc, section):
+        pairs = [(q["left"], q["right"]) for q in section["questions"]]
+        random.shuffle(pairs)
+        rights, lefts = zip(*pairs) if pairs else ([], [])
+        rights = list(rights)
+        random.shuffle(rights)
+        doc_section = doc.sections[0]
+        usable_width = (
+            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
+        )
+        display_rights = [f"{chr(65 + i)}. {r}" for i, r in enumerate(rights)]
+        max_right_len = max((len(s) for s in display_rights), default=0)
+        char_pt = 6.5
+        right_width = Pt(max_right_len * char_pt + 12)
+        max_right_allowed = usable_width * 0.6
+        if right_width > max_right_allowed:
+            right_width = max_right_allowed
+        table = doc.add_table(rows=len(lefts), cols=2)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.autofit = False
+        if len(table.columns) >= 2:
+            table.columns[1].width = right_width
+            left_width = usable_width - right_width
+            if left_width <= Pt(0):
+                left_width = usable_width - Pt(40)
+            table.columns[0].width = left_width
+        for i in range(len(lefts)):
+            row_cells = table.rows[i].cells
+            row_cells[0].text = ""
+            left_p = row_cells[0].paragraphs[0]
+            blank_run = left_p.add_run("\u2003\u2003")
+            blank_run.underline = True
+            left_p.add_run(f" {lefts[i]}")
+            row_cells[1].text = ""
+            right_p = row_cells[1].paragraphs[0]
+            right_text = (
+                display_rights[i]
+                if i < len(display_rights)
+                else f"{chr(65 + i)}. {rights[i]}"
+            )
+            right_p.add_run(right_text)
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    para.paragraph_format.space_after = Pt(0)
+
+    def _add_matching_h(doc, section):
+        pairs = [(q["left"], q["right"]) for q in section["questions"]]
+        terms, defs = ([], [])
+        if pairs:
+            terms, defs = zip(*pairs)
+            terms = list(terms)
+            defs = list(defs)
+        n_terms = len(terms)
+        if n_terms:
+            best_rows = 1
+            best_empty = None
+            for r in range(1, 4):
+                cols = (n_terms + r - 1) // r
+                empty = r * cols - n_terms
+                if (
+                    best_empty is None
+                    or empty < best_empty
+                    or (empty == best_empty and r < best_rows)
+                ):
+                    best_rows = r
+                    best_empty = empty
+            rows = best_rows
+            cols = (n_terms + rows - 1) // rows
+            term_bank = doc.add_table(rows=rows, cols=cols)
+            term_bank.alignment = WD_TABLE_ALIGNMENT.CENTER
+            term_bank.autofit = True
+            labels = [f"{chr(65 + i)}. {t}" for i, t in enumerate(terms)]
+            idx = 0
+            for r in range(rows):
+                for c in range(cols):
+                    cell = term_bank.rows[r].cells[c]
+                    cell.text = ""
+                    if idx < len(labels):
+                        p = cell.paragraphs[0]
+                        run = p.add_run(labels[idx])
+                        run.font.size = Pt(10)
+                        idx += 1
+            for row in term_bank.rows:
+                for cell in row.cells:
+                    for para in cell.paragraphs:
+                        para.paragraph_format.space_after = Pt(0)
+        n = len(defs)
+        if n == 0:
+            return
+        rows = (n + 1) // 2
+        match_table = doc.add_table(rows=rows, cols=4)
+        match_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        match_table.autofit = False
+        for i in range(n):
+            row = i // 2
+            col = (i % 2) * 2
+            blank_cell = match_table.rows[row].cells[col]
+            blank_cell.text = ""
+            p_blank = blank_cell.paragraphs[0]
+            p_blank.paragraph_format.space_before = Pt(5.5)
+            blank_run = p_blank.add_run("\u2003\u2003\u2003\u2003\u2003")
+            blank_run.underline = True
+            p_blank.add_run(" ")
+            def_cell = match_table.rows[row].cells[col + 1]
+            def_cell.text = ""
+            p_def = def_cell.paragraphs[0]
+            p_def.paragraph_format.space_before = Pt(5.5)
+            p_def.add_run(defs[i])
+        font_size_pt = 11
+        num_em_spaces = 5
+        emu_per_pt = 12700
+        padding_inch = 0.16
+        emu_per_inch = 914400
+        padding_emu = int(padding_inch * emu_per_inch)
+        blank_w = int(font_size_pt * num_em_spaces * emu_per_pt) + padding_emu
+        doc_section = doc.sections[0]
+        usable_width = (
+            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
+        )
+        def_w = int((usable_width - 2 * blank_w) / 2)
+        match_table.columns[0].width = blank_w
+        match_table.columns[1].width = def_w
+        match_table.columns[2].width = blank_w
+        match_table.columns[3].width = def_w
+        for row in match_table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    para.paragraph_format.space_after = Pt(0)
+
+    def _add_blanks_questions(doc, section):
+        for q in section["questions"]:
+            p = doc.add_paragraph(style="List Number")
+            text = q["text"]
+            p.paragraph_format.line_spacing = 2.0  # Double-spaced for blanks section
+            parts = re.split(r"(_+)", text)
+            for part in parts:
+                if part and part[0] == "_":
+                    for _ in part:
+                        run = p.add_run("\u2003")
+                        run.underline = True
+                else:
+                    _add_markdown_run(p, part)
+
+    def _finalize_paragraphs(doc):
+        for idx, paragraph in enumerate(doc.paragraphs):
+            if paragraph.text and paragraph.text.strip().startswith(
+                "Use a separate sheet"
+            ):
+                paragraph.paragraph_format.line_spacing = 1.0
+                paragraph.paragraph_format.space_before = Pt(0)
+                if idx > 0:
+                    prev = doc.paragraphs[idx - 1]
+                    try:
+                        prev.paragraph_format.space_after = Pt(0)
+                    except Exception:
+                        pass
+                continue
+            # Preserve single-spacing for question paragraphs
+            if (
+                hasattr(paragraph, "style")
+                and getattr(paragraph.style, "name", None) == "List Number"
+            ):
+                # Do not overwrite line_spacing for question paragraphs
+                pass
+            else:
+                paragraph.paragraph_format.line_spacing = 1.5
+            parent_tag = paragraph._element.getparent().tag
+            if (
+                parent_tag
+                == "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}tc"
+            ):
+                paragraph.paragraph_format.space_after = Pt(0)
+            else:
+                paragraph.paragraph_format.space_after = Pt(12)
+
+    doc = Document(template_path) if template_path else Document()
+    _set_page_layout(doc)
+    _add_header(doc)
+    _add_subject_and_title(doc, test_data)
+    for section in test_data["sections"]:
+        _add_section(doc, section)
+        typ = section["type"]
+        if typ == "short":
+            _add_short_questions(doc, section)
+        elif typ == "long":
+            _add_long_questions(doc, section)
+        elif typ == "matching_v":
+            _add_matching_v(doc, section)
+        elif typ == "matching_h":
+            _add_matching_h(doc, section)
+        elif typ == "blanks":
+            _add_blanks_questions(doc, section)
+    _finalize_paragraphs(doc)
+    doc.save(output_path)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Generate a DOCX test file from a template"
+    )
+    parser.add_argument("input", help="Path to the input template file (.txt)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="test.docx",
+        help="Path to the output DOCX file (default: test.docx)",
+    )
+    parser.add_argument(
+        "-t",
+        "--template",
+        default=None,
+        help="Path to a DOCX template file (optional)",
+    )
+    args = parser.parse_args()
+
+    template_data = parse_template(args.input)
+    generate_docx(template_data, args.output, template_path=args.template)
+    print(f"Generated DOCX file: {args.output}")
+
+
+if __name__ == "__main__":
+    main()
