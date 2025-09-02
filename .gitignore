@@ -1,7 +1,9 @@
 /.vscode
 sample.docx
 test_rust.docx
+final_test.docx
 test_rust_enhanced.docx
+*.docx#
 
 # Rust build artifacts
 /target/
