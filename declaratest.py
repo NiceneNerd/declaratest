@@ -38,6 +38,8 @@ class Section(TypedDict):
     questions: List[Union[MatchingQuestion, TextQuestion, BlankQuestion]]
     type: Optional[SectionType]
     separate_sheet: bool
+    subtitle: Optional[str]
+    oral: bool
 
 
 class TestData(TypedDict):
@@ -58,6 +60,8 @@ def parse_template(file_path: str) -> TestData:
             "questions": [],
             "type": None,
             "separate_sheet": False,
+            "subtitle": None,
+            "oral": False,
         }
 
     def _parse_question(
@@ -78,7 +82,10 @@ def parse_template(file_path: str) -> TestData:
                 text = re.sub(r"\(\d+\s+lines?\)", "", q).strip()
             else:
                 text = q.strip()
-            return {"text": text, "lines": lines_count}
+            # Only include 'lines' key if present to match TextQuestion total=False
+            if lines_count is not None:
+                return {"text": text, "lines": lines_count}
+            return {"text": text}
 
     with open(file_path, "r") as f:
         lines: List[str] = f.readlines()
@@ -102,6 +109,12 @@ def parse_template(file_path: str) -> TestData:
         elif line.startswith("Type:"):
             if current_section:
                 current_section["type"] = line.split(":", 1)[1].strip()  # type: ignore[assignment]
+        elif line.startswith("Subtitle:"):
+            if current_section:
+                current_section["subtitle"] = line.split(":", 1)[1].strip()
+        elif line.startswith("Oral:"):
+            if current_section:
+                current_section["oral"] = line.split(":", 1)[1].strip().lower() == "yes"
         elif line.startswith("Separate Sheet:"):
             if current_section:
                 current_section["separate_sheet"] = (
@@ -199,12 +212,37 @@ def generate_docx(
             run = p.runs[0]
             run.italic = True
             run.font.size = Pt(10)
+        if section["type"] == "short" and section.get("oral", True):
+            heading_p.paragraph_format.space_after = Pt(0)
+        # Add optional subtitle rendered similarly to the separate-sheet note
+        subtitle = section.get("subtitle")
+        if subtitle:
+            heading_p.paragraph_format.space_after = Pt(0)
+            p_sub = doc.add_paragraph()
+            p_sub.paragraph_format.space_before = Pt(0)
+            # Render markdown into the subtitle paragraph
+            _add_markdown_run(p_sub, subtitle)
+            # Apply the same styling as the separate-sheet note to all runs
+            for run_sub in p_sub.runs:
+                run_sub.italic = True
+                run_sub.font.size = Pt(10)
 
     def _add_short_questions(doc: DocxDocument, section: Section) -> None:
+        is_oral = bool(section.get("oral", False))
+        if is_oral:
+            p_sub = doc.add_paragraph()
+            p_sub.paragraph_format.space_before = Pt(0)
+            run = p_sub.add_run("To be completed orally")
+            run.italic = True
+            run.font.size = Pt(10)
         for q in section["questions"]:  # type: ignore[assignment]
             p = doc.add_paragraph(style="List Number")
             _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
+            if is_oral:
+                # For oral sections, do not add blank answer lines; instead
+                # add a small italic subtitle note under the section heading once.
+                continue
             num_lines = q["lines"] if isinstance(q, dict) and q.get("lines") else 1  # type: ignore[index]
             for _ in range(num_lines):
                 blank_p = doc.add_paragraph()
@@ -212,7 +250,7 @@ def generate_docx(
                 blank_p.paragraph_format.tab_stops.add_tab_stop(Inches(7))
                 run = blank_p.runs[-1]
                 run.underline = True
-                blank_p.paragraph_format.line_spacing = 2.0
+                blank_p.paragraph_format.line_spacing = 1.5
 
     def _add_long_questions(doc: DocxDocument, section: Section) -> None:
         for q in section["questions"]:  # type: ignore[assignment]
@@ -227,7 +265,7 @@ def generate_docx(
                     blank_p.paragraph_format.tab_stops.add_tab_stop(Inches(7))
                     run = blank_p.runs[-1]
                     run.underline = True
-                    blank_p.paragraph_format.line_spacing = 2.0
+                    blank_p.paragraph_format.line_spacing = 1.5
 
     def _add_matching_v(doc: DocxDocument, section: Section) -> None:
         pairs: List[Tuple[str, str]] = [
