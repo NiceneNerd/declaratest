@@ -1,3 +1,7 @@
 /.vscode
-sample.docx
+/*.docx
+!default.docx
 /__pycache__
+test_*.docx
+/*.md
+!sample.md

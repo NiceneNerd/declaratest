@@ -10,6 +10,8 @@ from docx import Document
 from docx.shared import Pt, Inches
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
 if TYPE_CHECKING:  # Imported only for type checking; no runtime dependency changes
     from docx.document import Document as DocxDocument
@@ -30,16 +32,20 @@ class BlankQuestion(TypedDict):
     text: str
 
 
-SectionType = Literal["short", "long", "matching_v", "matching_h", "blanks"]
+class OralQuestion(TypedDict):
+    text: str
+    sub_points: List[str]
+
+
+SectionType = Literal["short", "long", "matching_v", "matching_h", "blanks", "oral"]
 
 
 class Section(TypedDict):
     name: str
-    questions: List[Union[MatchingQuestion, TextQuestion, BlankQuestion]]
+    questions: List[Union[MatchingQuestion, TextQuestion, BlankQuestion, OralQuestion]]
     type: Optional[SectionType]
     separate_sheet: bool
     subtitle: Optional[str]
-    oral: bool
 
 
 class TestData(TypedDict):
@@ -61,18 +67,20 @@ def parse_template(file_path: str) -> TestData:
             "type": None,
             "separate_sheet": False,
             "subtitle": None,
-            "oral": False,
         }
 
     def _parse_question(
         q: str, current_section: Section
-    ) -> Optional[Union[MatchingQuestion, TextQuestion, BlankQuestion]]:
+    ) -> Optional[Union[MatchingQuestion, TextQuestion, BlankQuestion, OralQuestion]]:
         if current_section["type"] in ["matching_v", "matching_h"]:
             if "->" in q:
                 left, right = [x.strip() for x in q.split("->")]
                 return {"left": left, "right": right}
         elif current_section["type"] == "blanks":
             return {"text": q}
+        elif current_section["type"] == "oral":
+            # For oral questions, we'll handle sub-points separately
+            return {"text": q, "sub_points": []}
         else:
             lines_count: Optional[int] = None
             # Remove '(N line[s])' from the question text if present
@@ -95,8 +103,9 @@ def parse_template(file_path: str) -> TestData:
     current_section: Optional[Section] = None
 
     for line in lines:
-        line = line.strip()
-        if not line:
+        original_line = line
+        line = line.rstrip()  # Only strip trailing whitespace, preserve indentation
+        if not line.strip():  # Check if line is empty after stripping all whitespace
             continue
         if line.startswith("# Test"):
             continue
@@ -113,13 +122,27 @@ def parse_template(file_path: str) -> TestData:
             if current_section:
                 current_section["subtitle"] = line.split(":", 1)[1].strip()
         elif line.startswith("Oral:"):
+            # Legacy support - convert "Oral: yes" to Type: oral for backward compatibility
             if current_section:
-                current_section["oral"] = line.split(":", 1)[1].strip().lower() == "yes"
+                is_oral = line.split(":", 1)[1].strip().lower() == "yes"
+                if is_oral:
+                    current_section["type"] = "oral"  # type: ignore[assignment]
         elif line.startswith("Separate Sheet:"):
             if current_section:
                 current_section["separate_sheet"] = (
                     line.split(":", 1)[1].strip().lower() == "yes"
                 )
+        elif line.startswith("    - ") or line.startswith("\t- "):
+            # Handle sub-points for oral questions (indented with 4 spaces or tab)
+            if (
+                current_section
+                and current_section["type"] == "oral"
+                and current_section["questions"]
+            ):
+                sub_point = line.strip()[2:].strip()  # Remove "- " from the beginning
+                last_question = current_section["questions"][-1]
+                if isinstance(last_question, dict) and "sub_points" in last_question:
+                    last_question["sub_points"].append(sub_point)  # type: ignore[index]
         elif line.startswith("- "):
             if current_section:
                 q = line[2:].strip()
@@ -173,8 +196,9 @@ def generate_docx(
         if pos < len(text):
             paragraph.add_run(text[pos:])
 
-    def _set_page_layout(doc: DocxDocument) -> None:
-        section = doc.sections[0]
+    def _set_page_layout(doc: DocxDocument, section=None) -> None:
+        if section is None:
+            section = doc.sections[0]
         section.page_width = Inches(8.5)
         section.page_height = Inches(11)
         section.left_margin = section.right_margin = section.top_margin = (
@@ -182,11 +206,12 @@ def generate_docx(
         ) = Inches(0.75)
         section.different_first_page_header_footer = True
 
-    def _add_header(doc: DocxDocument) -> None:
-        section = doc.sections[0]
+    def _add_header(doc: DocxDocument, section=None) -> None:
+        if section is None:
+            section = doc.sections[0]
         first_header = section.first_page_header
         header_p = first_header.paragraphs[0]
-        header_p.style.paragraph_format.space_before = Pt(12)
+        header_p.style.paragraph_format.space_before = Pt(27)
         header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
         # Automated en-space generation for Name and Date fields
@@ -212,8 +237,13 @@ def generate_docx(
             run = p.runs[0]
             run.italic = True
             run.font.size = Pt(10)
-        if section["type"] == "short" and section.get("oral", True):
+        if section["type"] == "oral":
             heading_p.paragraph_format.space_after = Pt(0)
+            p = doc.add_paragraph("To be completed orally")
+            p.paragraph_format.space_before = Pt(0)
+            run = p.runs[0]
+            run.italic = True
+            run.font.size = Pt(10)
         # Add optional subtitle rendered similarly to the separate-sheet note
         subtitle = section.get("subtitle")
         if subtitle:
@@ -228,21 +258,10 @@ def generate_docx(
                 run_sub.font.size = Pt(10)
 
     def _add_short_questions(doc: DocxDocument, section: Section) -> None:
-        is_oral = bool(section.get("oral", False))
-        if is_oral:
-            p_sub = doc.add_paragraph()
-            p_sub.paragraph_format.space_before = Pt(0)
-            run = p_sub.add_run("To be completed orally")
-            run.italic = True
-            run.font.size = Pt(10)
         for q in section["questions"]:  # type: ignore[assignment]
             p = doc.add_paragraph(style="List Number")
             _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
-            if is_oral:
-                # For oral sections, do not add blank answer lines; instead
-                # add a small italic subtitle note under the section heading once.
-                continue
             num_lines = q["lines"] if isinstance(q, dict) and q.get("lines") else 1  # type: ignore[index]
             for _ in range(num_lines):
                 blank_p = doc.add_paragraph()
@@ -424,6 +443,180 @@ def generate_docx(
                 else:
                     _add_markdown_run(p, part)
 
+    def _add_oral_questions(
+        doc: DocxDocument, section: Section, test_data: TestData
+    ) -> None:
+        # Add questions to main document without blank lines (already handled in _add_section)
+        for q in section["questions"]:  # type: ignore[assignment]
+            p = doc.add_paragraph(style="List Number")
+            _add_markdown_run(p, q["text"])  # type: ignore[index]
+            p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
+            # Sub-points should NOT appear on the test page - only on assessment sheet
+
+        # Generate oral assessment sheet on a separate page
+        _add_oral_assessment_sheet(doc, section, test_data)
+
+    def _set_cell_border(cell, **kwargs):
+        """
+        Set cell's border
+        Usage:
+        set_cell_border(
+            cell,
+            top={"sz": 12, "val": "single", "color": "#FF0000", "space": "0"},
+            bottom={"sz": 12, "val": "single", "color": "#00FF00", "space": "0"},
+            start={"sz": 24, "val": "dashed", "color": "#0000FF", "space": "0"},
+            end={"sz": 12, "val": "single", "color": "#000000", "space": "0"},
+        )
+        """
+        tcPr = cell._tc.get_or_add_tcPr()
+        tcBorders = tcPr.first_child_found_in("w:tcBorders")
+        if tcBorders is None:
+            tcBorders = OxmlElement("w:tcBorders")
+            tcPr.append(tcBorders)
+        for edge in ("start", "top", "end", "bottom", "insideH", "insideV"):
+            if edge in kwargs:
+                tag = f"w:{edge}"
+                element = tcBorders.find(qn(tag))
+                if element is None:
+                    element = OxmlElement(tag)
+                    tcBorders.append(element)
+                for k, v in kwargs[edge].items():
+                    element.set(qn(f"w:{k}"), str(v))
+
+    def _add_oral_assessment_sheet(
+        doc: DocxDocument, section: Section, test_data: TestData
+    ) -> None:
+        # Add a page break to start the oral assessment sheet
+        doc.add_page_break()
+
+        # Add a new section for the assessment sheet
+        doc.add_section()
+
+        # Set page layout for the new section
+        _set_page_layout(doc, doc.sections[-1])
+
+        # Add header to the new section
+        _add_header(doc, doc.sections[-1])
+
+        # Add header for the oral assessment sheet
+        h = doc.add_heading(f"{test_data['title']} - Oral Assessment Sheet", level=2)
+        h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # Calculate number of rows needed
+        total_rows = 0
+        for q in section["questions"]:  # type: ignore[assignment]
+            total_rows += 1  # Main question
+            if isinstance(q, dict) and "sub_points" in q:
+                total_rows += len(q["sub_points"])  # type: ignore[index]
+        total_rows += 1  # Total row
+
+        # Create table with 2 columns
+        table = doc.add_table(rows=total_rows, cols=2)
+        table.style = "Table Grid"
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.autofit = False
+
+        # Set column widths - first column wider for questions, second narrower for scoring
+        doc_section = doc.sections[0]
+        usable_width = (
+            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
+        )
+        # Calculate minimum width for score column (4 em-spaces + padding)
+        font_size_pt = 12
+        num_em_spaces = 4
+        emu_per_pt = 12700
+        padding_inch = 0.1
+        emu_per_inch = 914400
+        score_width_emu = int(font_size_pt * num_em_spaces * emu_per_pt) + int(
+            padding_inch * emu_per_inch
+        )
+        score_width = Pt(score_width_emu / emu_per_pt)
+        question_width = usable_width - score_width
+
+        table.columns[0].width = question_width
+        table.columns[1].width = score_width
+
+        # Populate the table
+        row_idx = 0
+        for q in section["questions"]:  # type: ignore[assignment]
+            # Main question row
+            question_cell = table.rows[row_idx].cells[0]
+            score_cell = table.rows[row_idx].cells[1]
+
+            question_cell.text = ""
+            question_p = question_cell.paragraphs[0]
+            _add_markdown_run(question_p, q["text"])  # type: ignore[index]
+
+            score_cell.text = ""
+            score_p = score_cell.paragraphs[0]
+            # Add underlined em-space for scoring only if no sub-points
+            if not (isinstance(q, dict) and "sub_points" in q and q["sub_points"]):
+                score_run = score_p.add_run("\u2003\u2003\u2003\u2003")
+                score_run.underline = True
+
+            row_idx += 1
+
+            # Sub-point rows (if any)
+            if isinstance(q, dict) and "sub_points" in q:
+                for i, sub_point in enumerate(q["sub_points"]):  # type: ignore[index]
+                    sub_question_cell = table.rows[row_idx].cells[0]
+                    sub_score_cell = table.rows[row_idx].cells[1]
+
+                    sub_question_cell.text = ""
+                    sub_question_p = sub_question_cell.paragraphs[0]
+                    # Add tab indentation for sub-points
+                    sub_question_p.add_run("\t")
+                    _add_markdown_run(sub_question_p, sub_point)
+
+                    sub_score_cell.text = ""
+                    sub_score_p = sub_score_cell.paragraphs[0]
+                    # Add underlined em-space for scoring
+                    sub_score_run = sub_score_p.add_run("\u2003\u2003\u2003\u2003")
+                    sub_score_run.underline = True
+
+                    if i > 0:
+                        for cell in table.rows[row_idx].cells:
+                            _set_cell_border(cell, top={"color": "D3D3D3"})
+
+                    row_idx += 1
+
+        # Add notes row instead of total scoring
+        notes_row = table.rows[row_idx]
+        # Merge both columns for notes section
+        notes_cell = notes_row.cells[0].merge(notes_row.cells[1])
+        # Add Notes heading
+        notes_cell.text = ""
+        p_notes = notes_cell.paragraphs[0]
+        run_notes = p_notes.add_run("Notes")
+        run_notes.bold = True
+        run_notes.font.size = Pt(9)
+        # Reserve space for notes (5 blank lines)
+        for _ in range(5):
+            notes_cell.add_paragraph()
+
+        # Format table cells
+        for row in table.rows:
+            for cell in row.cells:
+                # Set cell padding to 4pt on all sides
+                tc = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                tcMar = tcPr.first_child_found_in("w:tcMar")
+                if tcMar is None:
+                    tcMar = OxmlElement("w:tcMar")
+                    tcPr.append(tcMar)
+                padding_dxa = int(Pt(4).emu // 635)
+                for side in ["top", "bottom", "left", "right"]:
+                    tag = f"w:{side}"
+                    element = tcMar.find(qn(tag))
+                    if element is None:
+                        element = OxmlElement(tag)
+                        tcMar.append(element)
+                    element.set(qn("w:w"), str(padding_dxa))
+                    element.set(qn("w:type"), "dxa")
+                # Remove paragraph after-spacing
+                for para in cell.paragraphs:
+                    para.paragraph_format.space_after = Pt(0)
+
     def _finalize_paragraphs(doc: DocxDocument) -> None:
         for idx, paragraph in enumerate(doc.paragraphs):
             if paragraph.text and paragraph.text.strip().startswith(
@@ -442,7 +635,6 @@ def generate_docx(
     doc = Document(template_path) if template_path else Document()
     _set_page_layout(doc)
     _remove_leading_empty_paragraph(doc)
-    _add_header(doc)
     _add_subject_and_title(doc, test_data)
     for section in test_data["sections"]:
         _add_section(doc, section)
@@ -457,6 +649,8 @@ def generate_docx(
             _add_matching_h(doc, section)
         elif typ == "blanks":
             _add_blanks_questions(doc, section)
+        elif typ == "oral":
+            _add_oral_questions(doc, section, test_data)
     _finalize_paragraphs(doc)
     doc.save(output_path)
 
