@@ -101,8 +101,9 @@ def parse_template(file_path: str) -> TestData:
     current_section: Optional[Section] = None
 
     for line in lines:
-        line = line.strip()
-        if not line:
+        original_line = line
+        line = line.rstrip()  # Only strip trailing whitespace, preserve indentation
+        if not line.strip():  # Check if line is empty after stripping all whitespace
             continue
         if line.startswith("# Test"):
             continue
@@ -129,12 +130,6 @@ def parse_template(file_path: str) -> TestData:
                 current_section["separate_sheet"] = (
                     line.split(":", 1)[1].strip().lower() == "yes"
                 )
-        elif line.startswith("- "):
-            if current_section:
-                q = line[2:].strip()
-                question = _parse_question(q, current_section)
-                if question:
-                    current_section["questions"].append(question)
         elif line.startswith("    - ") or line.startswith("\t- "):
             # Handle sub-points for oral questions (indented with 4 spaces or tab)
             if current_section and current_section["type"] == "oral" and current_section["questions"]:
@@ -142,6 +137,12 @@ def parse_template(file_path: str) -> TestData:
                 last_question = current_section["questions"][-1]
                 if isinstance(last_question, dict) and "sub_points" in last_question:
                     last_question["sub_points"].append(sub_point)  # type: ignore[index]
+        elif line.startswith("- "):
+            if current_section:
+                q = line[2:].strip()
+                question = _parse_question(q, current_section)
+                if question:
+                    current_section["questions"].append(question)
 
     if current_section:
         sections.append(current_section)
