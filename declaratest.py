@@ -441,7 +441,7 @@ def generate_docx(
             p = doc.add_paragraph(style="List Number")
             _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
-            # No blank lines for oral questions in main document
+            # Sub-points should NOT appear on the test page - only on assessment sheet
         
         # Generate oral assessment sheet on a separate page
         _add_oral_assessment_sheet(doc, section)
