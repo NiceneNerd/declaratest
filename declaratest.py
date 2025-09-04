@@ -205,13 +205,20 @@ def generate_docx(
             section.bottom_margin
         ) = Inches(0.75)
         section.different_first_page_header_footer = True
+        # Center header vertically in the top margin
+        # Set header_distance to half of top_margin for vertical centering
+        try:
+            section.header_distance = section.top_margin / 2
+        except Exception:
+            pass
 
     def _add_header(doc: DocxDocument, section=None) -> None:
         if section is None:
             section = doc.sections[0]
         first_header = section.first_page_header
         header_p = first_header.paragraphs[0]
-        header_p.style.paragraph_format.space_before = Pt(27)
+        # Remove fixed space before to allow header to be centered via header_distance
+        header_p.paragraph_format.space_before = Pt(0)
         header_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
 
         # Automated en-space generation for Name and Date fields
