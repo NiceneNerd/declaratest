@@ -30,16 +30,20 @@ class BlankQuestion(TypedDict):
     text: str
 
 
-SectionType = Literal["short", "long", "matching_v", "matching_h", "blanks"]
+class OralQuestion(TypedDict):
+    text: str
+    sub_points: List[str]
+
+
+SectionType = Literal["short", "long", "matching_v", "matching_h", "blanks", "oral"]
 
 
 class Section(TypedDict):
     name: str
-    questions: List[Union[MatchingQuestion, TextQuestion, BlankQuestion]]
+    questions: List[Union[MatchingQuestion, TextQuestion, BlankQuestion, OralQuestion]]
     type: Optional[SectionType]
     separate_sheet: bool
     subtitle: Optional[str]
-    oral: bool
 
 
 class TestData(TypedDict):
@@ -61,18 +65,20 @@ def parse_template(file_path: str) -> TestData:
             "type": None,
             "separate_sheet": False,
             "subtitle": None,
-            "oral": False,
         }
 
     def _parse_question(
         q: str, current_section: Section
-    ) -> Optional[Union[MatchingQuestion, TextQuestion, BlankQuestion]]:
+    ) -> Optional[Union[MatchingQuestion, TextQuestion, BlankQuestion, OralQuestion]]:
         if current_section["type"] in ["matching_v", "matching_h"]:
             if "->" in q:
                 left, right = [x.strip() for x in q.split("->")]
                 return {"left": left, "right": right}
         elif current_section["type"] == "blanks":
             return {"text": q}
+        elif current_section["type"] == "oral":
+            # For oral questions, we'll handle sub-points separately
+            return {"text": q, "sub_points": []}
         else:
             lines_count: Optional[int] = None
             # Remove '(N line[s])' from the question text if present
@@ -113,8 +119,11 @@ def parse_template(file_path: str) -> TestData:
             if current_section:
                 current_section["subtitle"] = line.split(":", 1)[1].strip()
         elif line.startswith("Oral:"):
+            # Legacy support - convert "Oral: yes" to Type: oral for backward compatibility
             if current_section:
-                current_section["oral"] = line.split(":", 1)[1].strip().lower() == "yes"
+                is_oral = line.split(":", 1)[1].strip().lower() == "yes"
+                if is_oral:
+                    current_section["type"] = "oral"  # type: ignore[assignment]
         elif line.startswith("Separate Sheet:"):
             if current_section:
                 current_section["separate_sheet"] = (
@@ -126,6 +135,13 @@ def parse_template(file_path: str) -> TestData:
                 question = _parse_question(q, current_section)
                 if question:
                     current_section["questions"].append(question)
+        elif line.startswith("    - ") or line.startswith("\t- "):
+            # Handle sub-points for oral questions (indented with 4 spaces or tab)
+            if current_section and current_section["type"] == "oral" and current_section["questions"]:
+                sub_point = line.strip()[2:].strip()  # Remove "- " from the beginning
+                last_question = current_section["questions"][-1]
+                if isinstance(last_question, dict) and "sub_points" in last_question:
+                    last_question["sub_points"].append(sub_point)  # type: ignore[index]
 
     if current_section:
         sections.append(current_section)
@@ -212,8 +228,13 @@ def generate_docx(
             run = p.runs[0]
             run.italic = True
             run.font.size = Pt(10)
-        if section["type"] == "short" and section.get("oral", True):
+        if section["type"] == "oral":
             heading_p.paragraph_format.space_after = Pt(0)
+            p = doc.add_paragraph("To be completed orally")
+            p.paragraph_format.space_before = Pt(0)
+            run = p.runs[0]
+            run.italic = True
+            run.font.size = Pt(10)
         # Add optional subtitle rendered similarly to the separate-sheet note
         subtitle = section.get("subtitle")
         if subtitle:
@@ -228,21 +249,10 @@ def generate_docx(
                 run_sub.font.size = Pt(10)
 
     def _add_short_questions(doc: DocxDocument, section: Section) -> None:
-        is_oral = bool(section.get("oral", False))
-        if is_oral:
-            p_sub = doc.add_paragraph()
-            p_sub.paragraph_format.space_before = Pt(0)
-            run = p_sub.add_run("To be completed orally")
-            run.italic = True
-            run.font.size = Pt(10)
         for q in section["questions"]:  # type: ignore[assignment]
             p = doc.add_paragraph(style="List Number")
             _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
-            if is_oral:
-                # For oral sections, do not add blank answer lines; instead
-                # add a small italic subtitle note under the section heading once.
-                continue
             num_lines = q["lines"] if isinstance(q, dict) and q.get("lines") else 1  # type: ignore[index]
             for _ in range(num_lines):
                 blank_p = doc.add_paragraph()
@@ -424,6 +434,109 @@ def generate_docx(
                 else:
                     _add_markdown_run(p, part)
 
+    def _add_oral_questions(doc: DocxDocument, section: Section) -> None:
+        # Add questions to main document without blank lines (already handled in _add_section)
+        for q in section["questions"]:  # type: ignore[assignment]
+            p = doc.add_paragraph(style="List Number")
+            _add_markdown_run(p, q["text"])  # type: ignore[index]
+            p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
+            # No blank lines for oral questions in main document
+        
+        # Generate oral assessment sheet on a separate page
+        _add_oral_assessment_sheet(doc, section)
+    
+    def _add_oral_assessment_sheet(doc: DocxDocument, section: Section) -> None:
+        # Add a page break to start the oral assessment sheet
+        doc.add_page_break()
+        
+        # Add header for the oral assessment sheet
+        doc.add_heading(f"{section['name']} - Assessment Sheet", level=2)
+        
+        # Calculate number of rows needed
+        total_rows = 0
+        for q in section["questions"]:  # type: ignore[assignment]
+            total_rows += 1  # Main question
+            if isinstance(q, dict) and "sub_points" in q:
+                total_rows += len(q["sub_points"])  # type: ignore[index]
+        total_rows += 1  # Total row
+        
+        # Create table with 2 columns
+        table = doc.add_table(rows=total_rows, cols=2)
+        table.alignment = WD_TABLE_ALIGNMENT.CENTER
+        table.autofit = False
+        
+        # Set column widths - first column wider for questions, second narrower for scoring
+        doc_section = doc.sections[0]
+        usable_width = (
+            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
+        )
+        question_width = int(usable_width * 0.75)
+        score_width = int(usable_width * 0.25)
+        
+        table.columns[0].width = question_width
+        table.columns[1].width = score_width
+        
+        # Populate the table
+        row_idx = 0
+        for q in section["questions"]:  # type: ignore[assignment]
+            # Main question row
+            question_cell = table.rows[row_idx].cells[0]
+            score_cell = table.rows[row_idx].cells[1]
+            
+            question_cell.text = ""
+            question_p = question_cell.paragraphs[0]
+            _add_markdown_run(question_p, q["text"])  # type: ignore[index]
+            
+            score_cell.text = ""
+            score_p = score_cell.paragraphs[0]
+            # Add underlined em-space for scoring
+            score_run = score_p.add_run("\u2003\u2003\u2003\u2003")
+            score_run.underline = True
+            
+            row_idx += 1
+            
+            # Sub-point rows (if any)
+            if isinstance(q, dict) and "sub_points" in q:
+                for sub_point in q["sub_points"]:  # type: ignore[index]
+                    sub_question_cell = table.rows[row_idx].cells[0]
+                    sub_score_cell = table.rows[row_idx].cells[1]
+                    
+                    sub_question_cell.text = ""
+                    sub_question_p = sub_question_cell.paragraphs[0]
+                    # Add tab indentation for sub-points
+                    sub_question_p.add_run("\t")
+                    _add_markdown_run(sub_question_p, sub_point)
+                    
+                    sub_score_cell.text = ""
+                    sub_score_p = sub_score_cell.paragraphs[0]
+                    # Add underlined em-space for scoring
+                    sub_score_run = sub_score_p.add_run("\u2003\u2003\u2003\u2003")
+                    sub_score_run.underline = True
+                    
+                    row_idx += 1
+        
+        # Add total row
+        total_question_cell = table.rows[row_idx].cells[0]
+        total_score_cell = table.rows[row_idx].cells[1]
+        
+        total_question_cell.text = ""
+        total_question_p = total_question_cell.paragraphs[0]
+        total_question_p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+        total_run = total_question_p.add_run("Total")
+        total_run.bold = True
+        
+        total_score_cell.text = ""
+        total_score_p = total_score_cell.paragraphs[0]
+        # Add underlined em-space for total score
+        total_score_run = total_score_p.add_run("\u2003\u2003\u2003\u2003")
+        total_score_run.underline = True
+        
+        # Format table cells
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    para.paragraph_format.space_after = Pt(3)
+
     def _finalize_paragraphs(doc: DocxDocument) -> None:
         for idx, paragraph in enumerate(doc.paragraphs):
             if paragraph.text and paragraph.text.strip().startswith(
@@ -457,6 +570,8 @@ def generate_docx(
             _add_matching_h(doc, section)
         elif typ == "blanks":
             _add_blanks_questions(doc, section)
+        elif typ == "oral":
+            _add_oral_questions(doc, section)
     _finalize_paragraphs(doc)
     doc.save(output_path)
 

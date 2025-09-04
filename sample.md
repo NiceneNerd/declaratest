@@ -42,3 +42,12 @@ Type: blanks
 - A group of lions is called a ___________.
 - The process of water turning into vapor is called ___________.
 - The capital city of Japan is ___________.
+
+## Section: Oral Questions
+Type: oral
+- What are the main causes of climate change?
+- Explain the water cycle
+    - What happens during evaporation?
+    - How do clouds form?
+    - What is precipitation?
+- Describe the differences between renewable and non-renewable energy sources
