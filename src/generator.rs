@@ -49,46 +49,29 @@ fn create_header_paragraph() -> Paragraph {
 }
 
 fn add_subject_and_title(mut docx: Docx, test_data: &TestData) -> Docx {
-    // Add subject as subtitle
+    // Add subject as subtitle using the Subtitle style
     docx = docx.add_paragraph(
         Paragraph::new()
-            .add_run(
-                Run::new()
-                    .add_text(&format!("{} Test", test_data.subject))
-                    .size(28)
-                    .color("595959")
-                    .italic()
-            )
-            .align(AlignmentType::Center)
+            .add_run(Run::new().add_text(&format!("{} Test", test_data.subject)))
+            .style("Subtitle")
     );
     
-    // Add title
+    // Add title using the Title style
     docx = docx.add_paragraph(
         Paragraph::new()
-            .add_run(
-                Run::new()
-                    .add_text(&test_data.title)
-                    .size(48)
-                    .color("2F5496")
-                    .bold()
-            )
-            .align(AlignmentType::Center)
+            .add_run(Run::new().add_text(&test_data.title))
+            .style("Title")
     );
     
     docx
 }
 
 fn add_section(mut docx: Docx, section: &Section, test_data: &TestData) -> Result<Docx, Box<dyn std::error::Error>> {
-    // Add section heading
+    // Add section heading using Heading 2 style
     docx = docx.add_paragraph(
         Paragraph::new()
-            .add_run(
-                Run::new()
-                    .add_text(&section.name)
-                    .size(26)
-                    .bold()
-                    .color("2F5496")
-            )
+            .add_run(Run::new().add_text(&section.name))
+            .style("Heading2")
     );
     
     // Add special notes for long and oral sections
@@ -161,11 +144,11 @@ fn add_section(mut docx: Docx, section: &Section, test_data: &TestData) -> Resul
 fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
-            // Add numbered question with single line spacing
-            let question_para = template::apply_line_spacing(
-                create_markdown_paragraph(&format!("{}. {}", index + 1, text_q.text)),
-                1.0
-            );
+            // Add numbered question with markdown support and List Number style
+            let mut question_para = Paragraph::new().style("ListNumber");
+            question_para = question_para.add_run(Run::new().add_text(&format!("{}. ", index + 1)));
+            question_para = add_markdown_runs_to_paragraph(question_para, &text_q.text);
+            question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
             
             // Add blank lines with better underline sizing
@@ -186,11 +169,11 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
 fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
-            // Add numbered question with single line spacing
-            let question_para = template::apply_line_spacing(
-                create_markdown_paragraph(&format!("{}. {}", index + 1, text_q.text)),
-                1.0
-            );
+            // Add numbered question with markdown support and List Number style
+            let mut question_para = Paragraph::new().style("ListNumber");
+            question_para = question_para.add_run(Run::new().add_text(&format!("{}. ", index + 1)));
+            question_para = add_markdown_runs_to_paragraph(question_para, &text_q.text);
+            question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
             
             // Add blank lines if not separate sheet with better sizing
@@ -374,7 +357,8 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
 fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Blank(blank_q) = question {
-            let mut para = Paragraph::new();
+            let mut para = Paragraph::new()
+                .style("ListNumber"); // Use List Number style
             
             // Add question number
             para = para.add_run(Run::new().add_text(&format!("{}. ", index + 1)));
@@ -401,13 +385,13 @@ fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
 }
 
 fn add_oral_questions(mut docx: Docx, section: &Section, test_data: &TestData) -> Result<Docx, Box<dyn std::error::Error>> {
-    // Add questions to main document without blank lines with single line spacing
+    // Add questions to main document with markdown support and List Number style
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Oral(oral_q) = question {
-            let question_para = template::apply_line_spacing(
-                create_markdown_paragraph(&format!("{}. {}", index + 1, oral_q.text)),
-                1.0
-            );
+            let mut question_para = Paragraph::new().style("ListNumber");
+            question_para = question_para.add_run(Run::new().add_text(&format!("{}. ", index + 1)));
+            question_para = add_markdown_runs_to_paragraph(question_para, &oral_q.text);
+            question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
         }
     }
@@ -422,16 +406,11 @@ fn add_oral_assessment_sheet(mut docx: Docx, section: &Section, test_data: &Test
     // Add page break
     docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_break(BreakType::Page)));
     
-    // Add header for assessment sheet
+    // Add header for assessment sheet using Heading 1 style
     docx = docx.add_paragraph(
         Paragraph::new()
-            .add_run(
-                Run::new()
-                    .add_text(&format!("{} - Oral Assessment Sheet", test_data.title))
-                    .size(26)
-                    .bold()
-                    .color("2F5496")
-            )
+            .add_run(Run::new().add_text(&format!("{} - Oral Assessment Sheet", test_data.title)))
+            .style("Heading1")
             .align(AlignmentType::Center)
     );
     

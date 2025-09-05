@@ -13,6 +13,11 @@ pub struct TemplateInfo {
     pub margin_right: Option<i32>,
     pub header_margin: Option<i32>,
     pub footer_margin: Option<i32>,
+    // Style information
+    pub has_title_style: bool,
+    pub has_subtitle_style: bool,
+    pub has_heading_styles: bool,
+    pub has_list_number_style: bool,
 }
 
 impl Default for TemplateInfo {
@@ -28,6 +33,11 @@ impl Default for TemplateInfo {
             margin_right: Some(1440),
             header_margin: Some(720),
             footer_margin: Some(720),
+            // Default styles
+            has_title_style: false,
+            has_subtitle_style: false,
+            has_heading_styles: false,
+            has_list_number_style: false,
         }
     }
 }
@@ -40,22 +50,40 @@ pub fn parse_template(template_path: &Path) -> Result<TemplateInfo, Box<dyn std:
         Ok(docx_file) => {
             println!("✓ Successfully parsed template file");
             
-            // Try to extract some basic information from the template
-            // For now, we'll use basic extraction since docx-rust's API for detailed
-            // page layout extraction would require more extensive exploration
-            
+            // Try to parse the document to extract style information
             let mut template_info = TemplateInfo::default();
             
-            // In the future, this is where we would extract:
-            // - Page size from docx_file.document.body.section_properties
-            // - Margins from document settings  
-            // - Font styles and sizes
-            // - Header/footer information
-            // - Paragraph spacing defaults
-            
-            // For now, we provide meaningful feedback that template was processed
-            println!("✓ Template parsing successful - applying template-based styling");
-            println!("  Note: Using hybrid approach with docx-rust parsing + docx-rs generation");
+            // Try to parse and extract style information
+            match docx_file.parse() {
+                Ok(docx) => {
+                    println!("✓ Successfully parsed document structure");
+                    
+                    // Check for available styles
+                    for style in &docx.styles.styles {
+                        let style_id = &style.style_id;
+                        match style_id.as_ref() {
+                            "Title" => template_info.has_title_style = true,
+                            "Subtitle" => template_info.has_subtitle_style = true,
+                            "Heading1" | "Heading 1" => template_info.has_heading_styles = true,
+                            "Heading2" | "Heading 2" => template_info.has_heading_styles = true,
+                            "ListNumber" | "List Number" => template_info.has_list_number_style = true,
+                            _ => {}
+                        }
+                    }
+                    
+                    // Log found styles
+                    let style_count = docx.styles.styles.len();
+                    println!("✓ Found {} styles in template", style_count);
+                    if template_info.has_title_style { println!("  - Title style found"); }
+                    if template_info.has_subtitle_style { println!("  - Subtitle style found"); }
+                    if template_info.has_heading_styles { println!("  - Heading styles found"); }
+                    if template_info.has_list_number_style { println!("  - List Number style found"); }
+                }
+                Err(e) => {
+                    println!("Warning: Could not parse document structure ({}), using defaults", e);
+                    println!("✓ Template file processed - using basic template information");
+                }
+            }
             
             Ok(template_info)
         }
@@ -87,7 +115,67 @@ pub fn apply_template_info(docx: Docx, template_info: &TemplateInfo) -> Docx {
     
     result = result.page_margin(margin);
     
+    // Add essential styles if not found in template
+    result = add_essential_styles(result, template_info);
+    
     result
+}
+
+// Add essential styles to the document if they're missing from the template
+fn add_essential_styles(mut docx: Docx, template_info: &TemplateInfo) -> Docx {
+    // Add Title style if not in template
+    if !template_info.has_title_style {
+        docx = docx.add_style(
+            Style::new("Title", StyleType::Paragraph)
+                .name("Title")
+                .size(48)
+                .bold()
+                .color("2F5496")
+                .align(AlignmentType::Center)
+        );
+    }
+    
+    // Add Subtitle style if not in template
+    if !template_info.has_subtitle_style {
+        docx = docx.add_style(
+            Style::new("Subtitle", StyleType::Paragraph)
+                .name("Subtitle")
+                .size(28)
+                .italic()
+                .color("595959")
+                .align(AlignmentType::Center)
+        );
+    }
+    
+    // Add Heading styles if not in template
+    if !template_info.has_heading_styles {
+        docx = docx.add_style(
+            Style::new("Heading1", StyleType::Paragraph)
+                .name("Heading 1")
+                .size(32)
+                .bold()
+                .color("2F5496")
+        );
+        
+        docx = docx.add_style(
+            Style::new("Heading2", StyleType::Paragraph)
+                .name("Heading 2")
+                .size(26)
+                .bold()
+                .color("2F5496")
+        );
+    }
+    
+    // Add List Number style if not in template
+    if !template_info.has_list_number_style {
+        docx = docx.add_style(
+            Style::new("ListNumber", StyleType::Paragraph)
+                .name("List Number")
+                .size(24)
+        );
+    }
+    
+    docx
 }
 
 // Line spacing utility (unchanged)
