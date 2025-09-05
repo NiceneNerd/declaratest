@@ -10,15 +10,15 @@ pub fn generate_docx(
     output_path: &Path,
     template_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut docx = if let Some(_template) = template_path {
-        // For now, we'll just copy the template and then add content
-        // docx-rs doesn't have native template loading, so we'll start fresh and note the limitation
-        eprintln!("Warning: Template loading not fully supported in current docx-rs version. Using default styling.");
-        template::apply_page_layout(Docx::new())
+    // Parse template if provided, otherwise use defaults
+    let template_info = if let Some(template) = template_path {
+        template::parse_template(template)?
     } else {
-        // Apply page layout only for new documents
-        template::apply_page_layout(Docx::new())
+        template::TemplateInfo::default()
     };
+    
+    // Create document and apply template styling
+    let mut docx = template::apply_template_info(Docx::new(), &template_info);
     
     // Add header
     let header = Header::new().add_paragraph(create_header_paragraph());

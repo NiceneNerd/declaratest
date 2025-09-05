@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 docx-rs = "0.4"
+docx-rust = "0.1"
 clap = { version = "4.0", features = ["derive"] }
 regex = "1.0"
 rand = "0.8"
