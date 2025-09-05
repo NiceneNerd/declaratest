@@ -8,12 +8,17 @@ use std::path::Path;
 pub fn generate_docx(
     test_data: &TestData,
     output_path: &Path,
-    _template_path: Option<&Path>,
+    template_path: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut docx = Docx::new();
-    
-    // Apply page layout
-    docx = template::apply_page_layout(docx);
+    let mut docx = if let Some(_template) = template_path {
+        // For now, we'll just copy the template and then add content
+        // docx-rs doesn't have native template loading, so we'll start fresh and note the limitation
+        eprintln!("Warning: Template loading not fully supported in current docx-rs version. Using default styling.");
+        template::apply_page_layout(Docx::new())
+    } else {
+        // Apply page layout only for new documents
+        template::apply_page_layout(Docx::new())
+    };
     
     // Add header
     let header = Header::new().add_paragraph(create_header_paragraph());
@@ -113,7 +118,15 @@ fn add_section(mut docx: Docx, section: &Section, test_data: &TestData) -> Resul
     
     // Add subtitle if present
     if let Some(subtitle) = &section.subtitle {
-        docx = docx.add_paragraph(create_markdown_paragraph(subtitle));
+        docx = docx.add_paragraph(
+            Paragraph::new()
+                .add_run(
+                    Run::new()
+                        .add_text(subtitle)
+                        .italic()
+                        .size(20) // 10pt
+                )
+        );
     }
     
     // Add questions based on type
@@ -148,18 +161,22 @@ fn add_section(mut docx: Docx, section: &Section, test_data: &TestData) -> Resul
 fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
-            // Add numbered question
-            docx = docx.add_paragraph(
-                create_markdown_paragraph(&format!("{}. {}", index + 1, text_q.text))
+            // Add numbered question with single line spacing
+            let question_para = template::apply_line_spacing(
+                create_markdown_paragraph(&format!("{}. {}", index + 1, text_q.text)),
+                1.0
             );
+            docx = docx.add_paragraph(question_para);
             
-            // Add blank lines
+            // Add blank lines with better underline sizing
             let num_lines = text_q.lines.unwrap_or(1);
             for _ in 0..num_lines {
-                docx = docx.add_paragraph(
+                let blank_para = template::apply_line_spacing(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("\t").underline("single"))
+                        .add_run(Run::new().add_text("\t___________________________").underline("single")), // Better sized underline
+                    1.5
                 );
+                docx = docx.add_paragraph(blank_para);
             }
         }
     }
@@ -169,19 +186,23 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
 fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
-            // Add numbered question
-            docx = docx.add_paragraph(
-                create_markdown_paragraph(&format!("{}. {}", index + 1, text_q.text))
+            // Add numbered question with single line spacing
+            let question_para = template::apply_line_spacing(
+                create_markdown_paragraph(&format!("{}. {}", index + 1, text_q.text)),
+                1.0
             );
+            docx = docx.add_paragraph(question_para);
             
-            // Add blank lines if not separate sheet
+            // Add blank lines if not separate sheet with better sizing
             if !section.separate_sheet {
                 let num_lines = text_q.lines.unwrap_or(10);
                 for _ in 0..num_lines {
-                    docx = docx.add_paragraph(
+                    let blank_para = template::apply_line_spacing(
                         Paragraph::new()
-                            .add_run(Run::new().add_text("\t").underline("single"))
+                            .add_run(Run::new().add_text("\t___________________________").underline("single")), // Better sized underline
+                        1.5
                     );
+                    docx = docx.add_paragraph(blank_para);
                 }
             }
         }
@@ -215,7 +236,7 @@ fn add_matching_v(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
         let left_cell = TableCell::new()
             .add_paragraph(
                 Paragraph::new()
-                    .add_run(Run::new().add_text("\u{2003}\u{2003}").underline("single"))
+                    .add_run(Run::new().add_text("_____").underline("single")) // Better sized blank
                     .add_run(Run::new().add_text(&format!(" {}", lefts[i])))
             );
             
@@ -295,7 +316,7 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
     let term_table = Table::new(term_table_rows);
     docx = docx.add_table(term_table);
     
-    // Create matching table
+    // Create matching table with better sized blanks
     let n_defs = defs.len();
     if n_defs > 0 {
         let match_rows = (n_defs + 1) / 2;
@@ -308,7 +329,7 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             if i * 2 < n_defs {
                 let blank_cell = TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("\u{2003}".repeat(5)).underline("single"))
+                        .add_run(Run::new().add_text("_______").underline("single")) // Better sized blank
                         .add_run(Run::new().add_text(" "))
                 );
                 let def_cell = TableCell::new().add_paragraph(
@@ -326,7 +347,7 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             if i * 2 + 1 < n_defs {
                 let blank_cell = TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("\u{2003}".repeat(5)).underline("single"))
+                        .add_run(Run::new().add_text("_______").underline("single")) // Better sized blank
                         .add_run(Run::new().add_text(" "))
                 );
                 let def_cell = TableCell::new().add_paragraph(
@@ -358,12 +379,12 @@ fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
             // Add question number
             para = para.add_run(Run::new().add_text(&format!("{}. ", index + 1)));
             
-            // Parse underscores in the text
+            // Parse underscores in the text - improved blank sizes
             let parts: Vec<&str> = blank_q.text.split('_').collect();
             for (i, part) in parts.iter().enumerate() {
                 if i > 0 {
-                    // Add underlined em-space for each underscore
-                    para = para.add_run(Run::new().add_text("\u{2003}").underline("single"));
+                    // Add properly sized underlined blank for each underscore
+                    para = para.add_run(Run::new().add_text("__________").underline("single")); // Fixed-width blank
                 }
                 
                 if !part.is_empty() {
@@ -371,6 +392,8 @@ fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
                 }
             }
             
+            // Apply double spacing as per Python version
+            para = template::apply_line_spacing(para, 2.0);
             docx = docx.add_paragraph(para);
         }
     }
@@ -378,12 +401,14 @@ fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
 }
 
 fn add_oral_questions(mut docx: Docx, section: &Section, test_data: &TestData) -> Result<Docx, Box<dyn std::error::Error>> {
-    // Add questions to main document without blank lines
+    // Add questions to main document without blank lines with single line spacing
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Oral(oral_q) = question {
-            docx = docx.add_paragraph(
-                create_markdown_paragraph(&format!("{}. {}", index + 1, oral_q.text))
+            let question_para = template::apply_line_spacing(
+                create_markdown_paragraph(&format!("{}. {}", index + 1, oral_q.text)),
+                1.0
             );
+            docx = docx.add_paragraph(question_para);
         }
     }
     
@@ -410,16 +435,6 @@ fn add_oral_assessment_sheet(mut docx: Docx, section: &Section, test_data: &Test
             .align(AlignmentType::Center)
     );
     
-    // Calculate total rows needed (for future use)
-    let mut _total_rows = 0;
-    for question in &section.questions {
-        if let Question::Oral(oral_q) = question {
-            _total_rows += 1; // Main question
-            _total_rows += oral_q.sub_points.len(); // Sub-points
-        }
-    }
-    _total_rows += 1; // Notes row
-    
     // Create table
     let mut table_rows = Vec::new();
     
@@ -432,7 +447,7 @@ fn add_oral_assessment_sheet(mut docx: Docx, section: &Section, test_data: &Test
             let score_cell = if oral_q.sub_points.is_empty() {
                 TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("\u{2003}".repeat(4)).underline("single"))
+                        .add_run(Run::new().add_text("_______").underline("single")) // Better sized score blank
                 )
             } else {
                 TableCell::new().add_paragraph(Paragraph::new())
@@ -452,7 +467,7 @@ fn add_oral_assessment_sheet(mut docx: Docx, section: &Section, test_data: &Test
                 let sub_score_cell = TableCell::new()
                     .add_paragraph(
                         Paragraph::new()
-                            .add_run(Run::new().add_text("\u{2003}".repeat(4)).underline("single"))
+                            .add_run(Run::new().add_text("_______").underline("single")) // Better sized score blank
                     );
                 
                 table_rows.push(TableRow::new(vec![sub_question_cell, sub_score_cell]));
