@@ -5,3 +5,7 @@
 test_*.docx
 /*.md
 !sample.md
+
+# Added by cargo
+
+/target
