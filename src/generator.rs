@@ -167,7 +167,10 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
             let mut question_para = Paragraph::new().style("ListNumber");
             question_para = question_para.add_run(Run::new().add_text(format!("{}. ", index + 1)));
             question_para = add_markdown_runs_to_paragraph(question_para, &text_q.text);
-            question_para = template::apply_line_spacing(question_para, 1.0);
+            // question_para = template::apply_line_spacing(question_para, 1.15);
+            if section.separate_sheet {
+                question_para = question_para.line_spacing(LineSpacing::new().after(14 * 20));
+            }
             docx = docx.add_paragraph(question_para);
 
             // Add blank lines using em-spaces to fill the line
@@ -197,7 +200,10 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
             let mut question_para = Paragraph::new().style("ListNumber");
             question_para = question_para.add_run(Run::new().add_text(format!("{}. ", index + 1)));
             question_para = add_markdown_runs_to_paragraph(question_para, &text_q.text);
-            question_para = template::apply_line_spacing(question_para, 1.0);
+            if section.separate_sheet {
+                question_para =
+                    question_para.line_spacing(LineSpacing::new().after(0).line(14 * 20));
+            }
             docx = docx.add_paragraph(question_para);
 
             // Add blank lines if not separate sheet using em-spaces to fill the line
@@ -261,7 +267,7 @@ fn add_matching_v(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
         table_rows.push(TableRow::new(vec![left_cell, right_cell]));
     }
 
-    let table = Table::new(table_rows);
+    let table = Table::new(table_rows).clear_all_border();
     docx = docx.add_table(table);
 
     Ok(docx)
@@ -376,7 +382,7 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             match_table_rows.push(TableRow::new(row_cells));
         }
 
-        let match_table = Table::new(match_table_rows);
+        let match_table = Table::new(match_table_rows).clear_all_border();
         docx = docx.add_table(match_table);
     }
 
@@ -405,8 +411,8 @@ fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
             }
 
             // Apply double spacing as per Python version
-            para = template::apply_line_spacing(para, 2.0);
-            docx = docx.add_paragraph(para);
+            // para = template::apply_line_spacing(para, 2.0);
+            docx = docx.add_paragraph(para.line_spacing(LineSpacing::new().after(0).line(24 * 20)));
         }
     }
     docx
@@ -422,8 +428,9 @@ fn add_oral_questions(
         if let Question::Oral(oral_q) = question {
             let mut question_para = Paragraph::new().style("ListNumber");
             question_para = question_para.add_run(Run::new().add_text(format!("{}. ", index + 1)));
-            question_para = add_markdown_runs_to_paragraph(question_para, &oral_q.text);
-            question_para = template::apply_line_spacing(question_para, 1.0);
+            question_para = add_markdown_runs_to_paragraph(question_para, &oral_q.text)
+                .line_spacing(LineSpacing::new().after(0).line(14 * 20));
+            // question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
         }
     }
@@ -453,40 +460,70 @@ fn add_oral_assessment_sheet(
     // Create table
     let mut table_rows = Vec::new();
 
+    fn set_cell_margins(mut cell: TableCell) -> TableCell {
+        cell.property = cell.property.clone().margins(
+            CellMargins::new()
+                .margin_top(40, WidthType::Auto)
+                .margin_bottom(40, WidthType::Auto)
+                .margin_left(40, WidthType::Auto)
+                .margin_right(40, WidthType::Auto),
+        );
+        cell
+    }
+
     for question in &section.questions {
         if let Question::Oral(oral_q) = question {
             // Main question row
-            let question_cell =
-                TableCell::new().add_paragraph(create_markdown_paragraph(&oral_q.text));
+            let question_cell = set_cell_margins(
+                TableCell::new().width(0, WidthType::Auto).add_paragraph(
+                    create_markdown_paragraph(&oral_q.text)
+                        .line_spacing(LineSpacing::new().after(0)),
+                ),
+            );
 
             let score_cell = if oral_q.sub_points.is_empty() {
-                TableCell::new().add_paragraph(
-                    Paragraph::new().add_run(
-                        Run::new()
-                            .add_text("\u{2003}".repeat(4))
-                            .underline("single"),
-                    ), // Four em-spaces like Python
+                set_cell_margins(
+                    TableCell::new().width(1440, WidthType::Dxa).add_paragraph(
+                        Paragraph::new()
+                            .add_run(
+                                Run::new()
+                                    .add_text("\u{2003}".repeat(4))
+                                    .underline("single"),
+                            )
+                            .line_spacing(LineSpacing::new().after(0)), // Four em-spaces like Python
+                    ),
                 )
             } else {
-                TableCell::new().add_paragraph(Paragraph::new())
+                set_cell_margins(
+                    TableCell::new()
+                        .width(1440, WidthType::Dxa)
+                        .add_paragraph(Paragraph::new().line_spacing(LineSpacing::new().after(0))),
+                )
             };
 
             table_rows.push(TableRow::new(vec![question_cell, score_cell]));
 
             // Sub-point rows
             for sub_point in &oral_q.sub_points {
-                let sub_question_cell = TableCell::new().add_paragraph(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text("\t"))
-                        .add_run(Run::new().add_text(sub_point)),
+                let sub_question_cell = set_cell_margins(
+                    TableCell::new().add_paragraph(
+                        Paragraph::new()
+                            .add_run(Run::new().add_text("\t"))
+                            .add_run(Run::new().add_text(sub_point))
+                            .line_spacing(LineSpacing::new().after(0)),
+                    ),
                 );
 
-                let sub_score_cell = TableCell::new().add_paragraph(
-                    Paragraph::new().add_run(
-                        Run::new()
-                            .add_text("\u{2003}".repeat(4))
-                            .underline("single"),
-                    ), // Four em-spaces like Python
+                let sub_score_cell = set_cell_margins(
+                    TableCell::new().width(1440, WidthType::Dxa).add_paragraph(
+                        Paragraph::new()
+                            .add_run(
+                                Run::new()
+                                    .add_text("\u{2003}".repeat(4))
+                                    .underline("single"),
+                            )
+                            .line_spacing(LineSpacing::new().after(0)), // Four em-spaces like Python
+                    ),
                 );
 
                 table_rows.push(TableRow::new(vec![sub_question_cell, sub_score_cell]));
@@ -495,9 +532,9 @@ fn add_oral_assessment_sheet(
     }
 
     // Add notes row
-    let notes_cell = TableCell::new().add_paragraph(
-        Paragraph::new().add_run(Run::new().add_text("Notes").bold().size(18)), // 9pt
-    );
+    let notes_cell = set_cell_margins(TableCell::new().add_paragraph(
+        Paragraph::new().add_run(Run::new().add_text("Notes").bold().size(20)), // 10pt
+    ));
 
     // Add blank paragraphs for notes
     let mut notes_cell_with_blanks = notes_cell;
@@ -505,13 +542,10 @@ fn add_oral_assessment_sheet(
         notes_cell_with_blanks = notes_cell_with_blanks.add_paragraph(Paragraph::new());
     }
 
-    // Create two separate cells since docx-rs doesn't support cell merging yet
-    table_rows.push(TableRow::new(vec![
-        notes_cell_with_blanks,
-        TableCell::new().add_paragraph(Paragraph::new()),
-    ]));
+    // Create only one cell, automatically spans both columns
+    table_rows.push(TableRow::new(vec![notes_cell_with_blanks]));
 
-    let table = Table::new(table_rows);
+    let table = Table::new(table_rows).width(0, WidthType::Auto);
     docx = docx.add_table(table);
 
     Ok(docx)
