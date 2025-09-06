@@ -1,4 +1,7 @@
-use crate::types::{TestData, Section, Question, SectionType, MatchingQuestion, TextQuestion, BlankQuestion, OralQuestion};
+use crate::types::{
+    BlankQuestion, MatchingQuestion, OralQuestion, Question, Section, SectionType, TestData,
+    TextQuestion,
+};
 use regex::Regex;
 use std::fs;
 use std::path::Path;
@@ -6,22 +9,22 @@ use std::path::Path;
 pub fn parse_template(file_path: &Path) -> Result<TestData, Box<dyn std::error::Error>> {
     let content = fs::read_to_string(file_path)?;
     let lines: Vec<&str> = content.lines().collect();
-    
+
     let mut test = TestData {
         subject: String::new(),
         title: String::new(),
         sections: Vec::new(),
     };
-    
+
     let mut sections = Vec::new();
     let mut current_section: Option<Section> = None;
-    
+
     for line in lines {
         let line = line.trim_end(); // Only strip trailing whitespace
         if line.trim().is_empty() {
             continue;
         }
-        
+
         if line.starts_with("# Test") {
             continue;
         } else if line.starts_with("Subject:") {
@@ -67,13 +70,21 @@ pub fn parse_template(file_path: &Path) -> Result<TestData, Box<dyn std::error::
             }
         } else if line.starts_with("Separate Sheet:") {
             if let Some(ref mut section) = current_section {
-                section.separate_sheet = line.split(':').nth(1).unwrap_or("").trim().to_lowercase() == "yes";
+                section.separate_sheet =
+                    line.split(':').nth(1).unwrap_or("").trim().to_lowercase() == "yes";
             }
         } else if line.starts_with("    - ") || line.starts_with("\t- ") {
             // Handle sub-points for oral questions (indented with 4 spaces or tab)
             if let Some(ref mut section) = current_section {
-                if matches!(section.section_type, Some(SectionType::Oral)) && !section.questions.is_empty() {
-                    let sub_point = line.trim().strip_prefix("- ").unwrap_or("").trim().to_string();
+                if matches!(section.section_type, Some(SectionType::Oral))
+                    && !section.questions.is_empty()
+                {
+                    let sub_point = line
+                        .trim()
+                        .strip_prefix("- ")
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
                     if let Some(Question::Oral(ref mut oral_q)) = section.questions.last_mut() {
                         oral_q.sub_points.push(sub_point);
                     }
@@ -88,11 +99,11 @@ pub fn parse_template(file_path: &Path) -> Result<TestData, Box<dyn std::error::
             }
         }
     }
-    
+
     if let Some(section) = current_section {
         sections.push(section);
     }
-    
+
     test.sections = sections;
     Ok(test)
 }
@@ -125,14 +136,15 @@ fn parse_question(q: &str, current_section: &Section) -> Option<Question> {
             // For short and long questions
             let lines_regex = Regex::new(r"\((\d+)\s+lines?\)").unwrap();
             let lines_count = if let Some(captures) = lines_regex.captures(q) {
-                captures.get(1)
+                captures
+                    .get(1)
                     .and_then(|m| m.as_str().parse::<usize>().ok())
             } else {
                 None
             };
-            
+
             let text = lines_regex.replace(q, "").trim().to_string();
-            
+
             return Some(Question::Text(TextQuestion {
                 text,
                 lines: lines_count,
