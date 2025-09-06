@@ -79,41 +79,54 @@ fn add_section(
     section: &Section,
     test_data: &TestData,
 ) -> Result<Docx, Box<dyn std::error::Error>> {
+    let has_subtitle = section.subtitle.is_some()
+        || (matches!(section.section_type, Some(SectionType::Long)) && section.separate_sheet)
+        || matches!(section.section_type, Some(SectionType::Oral));
+    let mut heading = Paragraph::new()
+        .add_run(Run::new().add_text(&section.name))
+        .style("Heading2");
+    if has_subtitle {
+        heading = heading.line_spacing(LineSpacing::new().after(0));
+    }
     // Add section heading using Heading 2 style
-    docx = docx.add_paragraph(
-        Paragraph::new()
-            .add_run(Run::new().add_text(&section.name))
-            .style("Heading2"),
-    );
+    docx = docx.add_paragraph(heading);
 
     // Add special notes for long and oral sections
     if matches!(section.section_type, Some(SectionType::Long)) && section.separate_sheet {
         docx = docx.add_paragraph(
-            Paragraph::new().add_run(
-                Run::new()
-                    .add_text("Use a separate sheet of paper")
-                    .italic()
-                    .size(20), // 10pt
-            ),
+            Paragraph::new()
+                .add_run(
+                    Run::new()
+                        .add_text("Use a separate sheet of paper")
+                        .italic()
+                        .size(20), // 10pt
+                )
+                .line_spacing(LineSpacing::new().after(12)),
         );
     }
 
     if matches!(section.section_type, Some(SectionType::Oral)) {
         docx = docx.add_paragraph(
-            Paragraph::new().add_run(
-                Run::new()
-                    .add_text("To be completed orally")
-                    .italic()
-                    .size(20), // 10pt
-            ),
+            Paragraph::new()
+                .add_run(
+                    Run::new()
+                        .add_text("To be completed orally")
+                        .italic()
+                        .size(20), // 10pt
+                )
+                .line_spacing(LineSpacing::new().after(12)),
         );
     }
 
     // Add subtitle if present
     if let Some(subtitle) = &section.subtitle {
-        docx = docx.add_paragraph(Paragraph::new().add_run(
-            Run::new().add_text(subtitle).italic().size(20), // 10pt
-        ));
+        docx = docx.add_paragraph(
+            Paragraph::new()
+                .add_run(
+                    Run::new().add_text(subtitle).italic().size(20), // 10pt
+                )
+                .line_spacing(LineSpacing::new().after(12)),
+        );
     }
 
     // Add questions based on type
@@ -146,6 +159,8 @@ fn add_section(
 }
 
 fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
+    // Estimate em-spaces needed to fill a line (assuming 80 chars per line, 1 em-space ~2 chars)
+    let em_spaces_per_line = 80 / 2;
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
             // Add numbered question with markdown support and List Number style
@@ -155,17 +170,15 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
             question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
 
-            // Add blank lines using em-spaces like Python version  
+            // Add blank lines using em-spaces to fill the line
             let num_lines = text_q.lines.unwrap_or(1);
             for _ in 0..num_lines {
                 let blank_para = template::apply_line_spacing(
-                    Paragraph::new()
-                        .add_run(Run::new().add_text("\t"))
-                        .add_run(
-                            Run::new()
-                                .add_text("\u{2003}".repeat(20)) // Em-spaces instead of underscores
-                                .underline("single"),
-                        ),
+                    Paragraph::new().add_run(
+                        Run::new()
+                            .add_text("\u{2003}".repeat(em_spaces_per_line)) // Em-spaces to fill line
+                            .underline("single"),
+                    ),
                     1.5,
                 );
                 docx = docx.add_paragraph(blank_para);
@@ -176,6 +189,8 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
 }
 
 fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
+    // Estimate em-spaces needed to fill a line (assuming 80 chars per line, 1 em-space ~2 chars)
+    let em_spaces_per_line = 80 / 2;
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
             // Add numbered question with markdown support and List Number style
@@ -185,18 +200,16 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
             question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
 
-            // Add blank lines if not separate sheet using em-spaces
+            // Add blank lines if not separate sheet using em-spaces to fill the line
             if !section.separate_sheet {
                 let num_lines = text_q.lines.unwrap_or(10);
                 for _ in 0..num_lines {
                     let blank_para = template::apply_line_spacing(
-                        Paragraph::new()
-                            .add_run(Run::new().add_text("\t"))
-                            .add_run(
-                                Run::new()
-                                    .add_text("\u{2003}".repeat(20)) // Em-spaces instead of underscores
-                                    .underline("single"),
-                            ),
+                        Paragraph::new().add_run(
+                            Run::new()
+                                .add_text("\u{2003}".repeat(em_spaces_per_line)) // Em-spaces to fill line
+                                .underline("single"),
+                        ),
                         1.5,
                     );
                     docx = docx.add_paragraph(blank_para);
@@ -324,7 +337,11 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             if i * 2 < n_defs {
                 let blank_cell = TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("\u{2003}".repeat(5)).underline("single")) // Five em-spaces like Python
+                        .add_run(
+                            Run::new()
+                                .add_text("\u{2003}".repeat(5))
+                                .underline("single"),
+                        ) // Five em-spaces like Python
                         .add_run(Run::new().add_text(" ")),
                 );
                 let def_cell = TableCell::new()
@@ -340,7 +357,11 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             if i * 2 + 1 < n_defs {
                 let blank_cell = TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("\u{2003}".repeat(5)).underline("single")) // Five em-spaces like Python
+                        .add_run(
+                            Run::new()
+                                .add_text("\u{2003}".repeat(5))
+                                .underline("single"),
+                        ) // Five em-spaces like Python
                         .add_run(Run::new().add_text(" ")),
                 );
                 let def_cell = TableCell::new()
@@ -440,7 +461,11 @@ fn add_oral_assessment_sheet(
 
             let score_cell = if oral_q.sub_points.is_empty() {
                 TableCell::new().add_paragraph(
-                    Paragraph::new().add_run(Run::new().add_text("\u{2003}".repeat(4)).underline("single")), // Four em-spaces like Python
+                    Paragraph::new().add_run(
+                        Run::new()
+                            .add_text("\u{2003}".repeat(4))
+                            .underline("single"),
+                    ), // Four em-spaces like Python
                 )
             } else {
                 TableCell::new().add_paragraph(Paragraph::new())
@@ -457,7 +482,11 @@ fn add_oral_assessment_sheet(
                 );
 
                 let sub_score_cell = TableCell::new().add_paragraph(
-                    Paragraph::new().add_run(Run::new().add_text("\u{2003}".repeat(4)).underline("single")), // Four em-spaces like Python
+                    Paragraph::new().add_run(
+                        Run::new()
+                            .add_text("\u{2003}".repeat(4))
+                            .underline("single"),
+                    ), // Four em-spaces like Python
                 );
 
                 table_rows.push(TableRow::new(vec![sub_question_cell, sub_score_cell]));
