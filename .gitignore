@@ -5,6 +5,7 @@
 test_*.docx
 /*.md
 !sample.md
+/venv
 
 # Added by cargo
 /target
