@@ -31,11 +31,11 @@ impl Default for TemplateInfo {
         let margin_right = 1080;
         let margin_top = 1080;
         let margin_bottom = 1080;
-        
+
         // Calculate usable dimensions
         let usable_width = (page_width as i32 - margin_left - margin_right).max(0) as u32;
         let usable_height = (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
-        
+
         Self {
             page_width: Some(page_width),
             page_height: Some(page_height),
@@ -213,12 +213,16 @@ pub fn parse_template(template_path: &Path) -> Result<TemplateInfo, Box<dyn std:
                     let margin_right = template_info.margin_right.unwrap_or(1080);
                     let margin_top = template_info.margin_top.unwrap_or(1080);
                     let margin_bottom = template_info.margin_bottom.unwrap_or(1080);
-                    
-                    template_info.usable_width = (page_width as i32 - margin_left - margin_right).max(0) as u32;
-                    template_info.usable_height = (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
 
-                    println!("✓ Calculated usable dimensions: {}x{} twentieths of point", 
-                             template_info.usable_width, template_info.usable_height);
+                    template_info.usable_width =
+                        (page_width as i32 - margin_left - margin_right).max(0) as u32;
+                    template_info.usable_height =
+                        (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
+
+                    println!(
+                        "✓ Calculated usable dimensions: {}x{} twentieths of point",
+                        template_info.usable_width, template_info.usable_height
+                    );
 
                     // Check for essential styles
                     let has_title = template_info.parsed_styles.contains_key("Title");
@@ -250,7 +254,7 @@ pub fn parse_template(template_path: &Path) -> Result<TemplateInfo, Box<dyn std:
 
                     // Even if parsing fails, we can still provide fallback behavior
                     // The template file was successfully loaded, so the --template argument is working
-                    
+
                     // Calculate usable dimensions even for fallback
                     let page_width = template_info.page_width.unwrap_or(12240);
                     let page_height = template_info.page_height.unwrap_or(15840);
@@ -258,9 +262,11 @@ pub fn parse_template(template_path: &Path) -> Result<TemplateInfo, Box<dyn std:
                     let margin_right = template_info.margin_right.unwrap_or(1080);
                     let margin_top = template_info.margin_top.unwrap_or(1080);
                     let margin_bottom = template_info.margin_bottom.unwrap_or(1080);
-                    
-                    template_info.usable_width = (page_width as i32 - margin_left - margin_right).max(0) as u32;
-                    template_info.usable_height = (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
+
+                    template_info.usable_width =
+                        (page_width as i32 - margin_left - margin_right).max(0) as u32;
+                    template_info.usable_height =
+                        (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
                 }
             }
 

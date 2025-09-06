@@ -554,23 +554,6 @@ fn add_oral_assessment_sheet(
     // Question column gets the remaining width
     let question_width_twips = usable_width.saturating_sub(score_width_twips);
 
-    println!("Oral assessment table sizing:");
-    println!(
-        "  Usable width: {} twips ({:.1} pt)",
-        usable_width,
-        usable_width as f32 / 20.0
-    );
-    println!(
-        "  Score column: {} twips ({:.1} pt)",
-        score_width_twips,
-        score_width_twips as f32 / 20.0
-    );
-    println!(
-        "  Question column: {} twips ({:.1} pt)",
-        question_width_twips,
-        question_width_twips as f32 / 20.0
-    );
-
     // Create table
     let mut table_rows = Vec::new();
 
