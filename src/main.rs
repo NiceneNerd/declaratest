@@ -28,6 +28,10 @@ struct Args {
     /// Create a simple default template with built-in styles
     #[arg(long)]
     create_template: bool,
+    
+    /// Create a minimal template for testing
+    #[arg(long)]
+    create_minimal: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,6 +44,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     if args.create_template {
         create_simple_template()?;
+        return Ok(());
+    }
+    
+    if args.create_minimal {
+        create_minimal_template()?;
         return Ok(());
     }
     
@@ -179,6 +188,46 @@ fn create_simple_template() -> Result<(), Box<dyn std::error::Error>> {
     docx.build().pack(file)?;
     
     println!("✓ Created simple_default.docx with built-in styles");
+    
+    Ok(())
+}
+
+fn create_minimal_template() -> Result<(), Box<dyn std::error::Error>> {
+    use docx_rs::*;
+    use std::fs::File;
+    
+    println!("Creating minimal template for testing...");
+    
+    // Create a very simple DOCX with basic styles that should be parseable by docx_rust
+    let docx = Docx::new()
+        .add_style(
+            Style::new("Title", StyleType::Paragraph)
+                .name("Title")
+                .size(48)
+                .bold()
+                .color("2F5496")
+        )
+        .add_style(
+            Style::new("Subtitle", StyleType::Paragraph)
+                .name("Subtitle")
+                .size(28)
+                .italic()
+                .color("595959")
+        )
+        .add_paragraph(
+            Paragraph::new()
+                .add_run(Run::new().add_text("Sample Title"))
+                .style("Title")
+        )
+        .add_paragraph(
+            Paragraph::new()
+                .add_run(Run::new().add_text("Sample Subtitle"))
+                .style("Subtitle")
+        );
+    
+    let file = File::create("minimal_template.docx")?;
+    docx.build().pack(file)?;
+    println!("✓ Created minimal_template.docx");
     
     Ok(())
 }
