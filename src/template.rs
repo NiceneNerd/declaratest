@@ -77,7 +77,26 @@ fn convert_style(rust_style: &docx_rust::styles::Style) -> Option<docx_rs::Style
         
         // Color
         if let Some(ref color) = char_props.color {
-            rs_style = rs_style.color(color.value.to_string());
+            if let Some(color_val) = color.value.as_ref() {
+                rs_style = rs_style.color(color_val.to_string());
+            }
+        }
+        
+        // Font names - try to extract font information
+        // Look for font-related properties in character properties
+        // Note: docx_rust might store fonts differently, this is a best-effort extraction
+        if let Some(ref fonts) = char_props.fonts {
+            let mut run_fonts = RunFonts::new();
+            
+            // Try to extract ASCII font
+            if let Some(ref ascii_font) = fonts.ascii_theme {
+                run_fonts = run_fonts.ascii(ascii_font.to_string());
+            } else if let Some(ref ascii_font) = fonts.ascii {
+                run_fonts = run_fonts.ascii(ascii_font.to_string());
+            }
+            
+            // Set the fonts on the style's run property
+            rs_style.run_property = rs_style.run_property.fonts(run_fonts);
         }
     }
     
@@ -93,6 +112,36 @@ fn convert_style(rust_style: &docx_rust::styles::Style) -> Option<docx_rs::Style
                 _ => AlignmentType::Left,
             };
             rs_style.paragraph_property = rs_style.paragraph_property.align(alignment);
+        }
+        
+        // Paragraph spacing - extract before/after spacing and line spacing
+        let mut line_spacing = LineSpacing::new();
+        let mut has_spacing = false;
+        
+        // Try to extract line spacing
+        if let Some(ref spacing) = para_props.spacing {
+            // Extract before spacing (in twentieths of a point)
+            if let Some(before) = spacing.before {
+                line_spacing = line_spacing.before(before as u32);
+                has_spacing = true;
+            }
+            
+            // Extract after spacing (in twentieths of a point)
+            if let Some(after) = spacing.after {
+                line_spacing = line_spacing.after(after as u32);
+                has_spacing = true;
+            }
+            
+            // Extract line spacing rule and value
+            if let Some(line_val) = spacing.line {
+                line_spacing = line_spacing.line(line_val as i32);
+                has_spacing = true;
+            }
+        }
+        
+        // Apply line spacing if we found any spacing information
+        if has_spacing {
+            rs_style.paragraph_property = rs_style.paragraph_property.line_spacing(line_spacing);
         }
     }
     
@@ -211,67 +260,137 @@ fn add_essential_styles(mut docx: Docx, template_info: &TemplateInfo) -> Docx {
     // Add Title style if not in template
     if !has_title {
         println!("✓ Adding default Title style");
-        docx = docx.add_style(
-            Style::new("Title", StyleType::Paragraph)
-                .name("Title")
-                .size(48)
-                .bold()
-                .color("2F5496")
-                .align(AlignmentType::Center)
+        let mut title_style = Style::new("Title", StyleType::Paragraph)
+            .name("Title")
+            .size(48)
+            .bold()
+            .color("2F5496")
+            .align(AlignmentType::Center);
+        
+        // Add proper spacing for title
+        title_style.paragraph_property = title_style.paragraph_property.line_spacing(
+            LineSpacing::new()
+                .line(276)   // 1.15 line spacing (276/240 = 1.15)
+                .before(240) // ~12pt before (one line worth)
+                .after(60)   // ~3pt after (25% of line space)
         );
+        
+        docx = docx.add_style(title_style);
     }
     
     // Add Subtitle style if not in template
     if !has_subtitle {
         println!("✓ Adding default Subtitle style");
-        docx = docx.add_style(
-            Style::new("Subtitle", StyleType::Paragraph)
-                .name("Subtitle")
-                .size(28)
-                .italic()
-                .color("595959")
-                .align(AlignmentType::Center)
+        let mut subtitle_style = Style::new("Subtitle", StyleType::Paragraph)
+            .name("Subtitle")
+            .size(28)
+            .italic()
+            .color("595959")
+            .align(AlignmentType::Center);
+        
+        // Add proper spacing for subtitle  
+        subtitle_style.paragraph_property = subtitle_style.paragraph_property.line_spacing(
+            LineSpacing::new()
+                .line(276)   // 1.15 line spacing
+                .before(180) // ~9pt before  
+                .after(60)   // ~3pt after
         );
+        
+        docx = docx.add_style(subtitle_style);
     }
     
     // Add Heading styles if not in template
     if !has_heading1 {
         println!("✓ Adding default Heading1 style");
-        docx = docx.add_style(
-            Style::new("Heading1", StyleType::Paragraph)
-                .name("Heading 1")
-                .size(32)
-                .bold()
-                .color("2F5496")
+        let mut heading1_style = Style::new("Heading1", StyleType::Paragraph)
+            .name("Heading 1")
+            .size(32)
+            .bold()
+            .color("2F5496");
+        
+        // Add proper spacing for heading1
+        heading1_style.paragraph_property = heading1_style.paragraph_property.line_spacing(
+            LineSpacing::new()
+                .line(276)   // 1.15 line spacing
+                .before(240) // ~12pt before (one line worth)
+                .after(60)   // ~3pt after (25% of line space)
         );
+        
+        docx = docx.add_style(heading1_style);
     }
     
     if !has_heading2 {
         println!("✓ Adding default Heading2 style");
-        docx = docx.add_style(
-            Style::new("Heading2", StyleType::Paragraph)
-                .name("Heading 2")
-                .size(26)
-                .bold()
-                .color("2F5496")
+        let mut heading2_style = Style::new("Heading2", StyleType::Paragraph)
+            .name("Heading 2")
+            .size(26)
+            .bold()
+            .color("2F5496");
+        
+        // Add proper spacing for heading2
+        heading2_style.paragraph_property = heading2_style.paragraph_property.line_spacing(
+            LineSpacing::new()
+                .line(276)   // 1.15 line spacing
+                .before(200) // ~10pt before (slightly less than heading1)
+                .after(40)   // ~2pt after (20% of line space)
         );
+        
+        docx = docx.add_style(heading2_style);
     }
     
     // Add List Number style if not in template
     if !has_list_number {
         println!("✓ Adding default ListNumber style");
-        docx = docx.add_style(
-            Style::new("ListNumber", StyleType::Paragraph)
-                .name("List Number")
-                .size(24)
+        let mut list_style = Style::new("ListNumber", StyleType::Paragraph)
+            .name("List Number")
+            .size(24);
+        
+        // Add proper spacing for list number style
+        list_style.paragraph_property = list_style.paragraph_property.line_spacing(
+            LineSpacing::new()
+                .line(276)   // 1.15 line spacing (default)
+                .before(0)   // No space before questions
+                .after(20)   // Small space after questions (~1pt)
         );
+        
+        docx = docx.add_style(list_style);
     }
     
     docx
 }
 
-// Line spacing utility (unchanged)
+// Line spacing utility
 pub fn apply_line_spacing(para: Paragraph, spacing: f32) -> Paragraph {
     let spacing_val = (spacing * 240.0) as i32;
     para.line_spacing(LineSpacing::new().line(spacing_val))
+}
+
+// Apply paragraph spacing (before and after)
+pub fn apply_paragraph_spacing(para: Paragraph, before_pt: f32, after_pt: f32) -> Paragraph {
+    let before_twentieths = (before_pt * 20.0) as u32;
+    let after_twentieths = (after_pt * 20.0) as u32;
+    
+    // Get current line spacing or use default
+    let current_line_spacing = para.property.line_spacing.clone()
+        .unwrap_or_else(|| LineSpacing::new().line(240)); // Default 1.0 line spacing
+    
+    para.line_spacing(
+        current_line_spacing
+            .before(before_twentieths)
+            .after(after_twentieths)
+    )
+}
+
+// Apply combined line and paragraph spacing
+pub fn apply_combined_spacing(para: Paragraph, line_spacing: f32, before_pt: f32, after_pt: f32) -> Paragraph {
+    let line_spacing_val = (line_spacing * 240.0) as i32;
+    let before_twentieths = (before_pt * 20.0) as u32;
+    let after_twentieths = (after_pt * 20.0) as u32;
+    
+    para.line_spacing(
+        LineSpacing::new()
+            .line(line_spacing_val)
+            .before(before_twentieths)
+            .after(after_twentieths)
+    )
 }
