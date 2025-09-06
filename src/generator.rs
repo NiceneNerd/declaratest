@@ -29,7 +29,7 @@ pub fn generate_docx(
 
     // Add sections
     for section in &test_data.sections {
-        docx = add_section(docx, section, test_data)?;
+        docx = add_section(docx, section, test_data, &template_info)?;
     }
 
     // Save document
@@ -78,6 +78,7 @@ fn add_section(
     mut docx: Docx,
     section: &Section,
     test_data: &TestData,
+    template_info: &template::TemplateInfo,
 ) -> Result<Docx, Box<dyn std::error::Error>> {
     let has_subtitle = section.subtitle.is_some()
         || (matches!(section.section_type, Some(SectionType::Long)) && section.separate_sheet)
@@ -132,35 +133,41 @@ fn add_section(
     // Add questions based on type
     match section.section_type {
         Some(SectionType::Short) => {
-            docx = add_short_questions(docx, section);
+            docx = add_short_questions(docx, section, template_info);
         }
         Some(SectionType::Long) => {
-            docx = add_long_questions(docx, section);
+            docx = add_long_questions(docx, section, template_info);
         }
         Some(SectionType::MatchingV) => {
-            docx = add_matching_v(docx, section)?;
+            docx = add_matching_v(docx, section, template_info)?;
         }
         Some(SectionType::MatchingH) => {
-            docx = add_matching_h(docx, section)?;
+            docx = add_matching_h(docx, section, template_info)?;
         }
         Some(SectionType::Blanks) => {
             docx = add_blanks_questions(docx, section);
         }
         Some(SectionType::Oral) => {
-            docx = add_oral_questions(docx, section, test_data)?;
+            docx = add_oral_questions(docx, section, test_data, template_info)?;
         }
         None => {
             // Default to short questions
-            docx = add_short_questions(docx, section);
+            docx = add_short_questions(docx, section, template_info);
         }
     }
 
     Ok(docx)
 }
 
-fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
-    // Estimate em-spaces needed to fill a line (assuming 80 chars per line, 1 em-space ~2 chars)
-    let em_spaces_per_line = 80 / 2;
+fn add_short_questions(mut docx: Docx, section: &Section, template_info: &template::TemplateInfo) -> Docx {
+    // Calculate actual number of characters that fit in usable width
+    // Assuming average character width of 7 points (typical for 12pt font)
+    let char_width_pt = 7.0;
+    let usable_width_pt = template_info.usable_width as f32 / 20.0; // Convert from twentieths of point to points
+    let chars_per_line = (usable_width_pt / char_width_pt) as usize;
+    // Use em-spaces which are wider than normal characters, so use fewer
+    let em_spaces_per_line = chars_per_line / 2; // Em-space is roughly 2 character widths
+    
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
             // Add numbered question with markdown support and List Number style
@@ -173,13 +180,13 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
             }
             docx = docx.add_paragraph(question_para);
 
-            // Add blank lines using em-spaces to fill the line
+            // Add blank lines using em-spaces based on actual usable width
             let num_lines = text_q.lines.unwrap_or(1);
             for _ in 0..num_lines {
                 let blank_para = template::apply_line_spacing(
                     Paragraph::new().add_run(
                         Run::new()
-                            .add_text("\u{2003}".repeat(em_spaces_per_line)) // Em-spaces to fill line
+                            .add_text("\u{2003}".repeat(em_spaces_per_line)) // Em-spaces to fill actual line width
                             .underline("single"),
                     ),
                     1.5,
@@ -191,9 +198,14 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
     docx
 }
 
-fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
-    // Estimate em-spaces needed to fill a line (assuming 80 chars per line, 1 em-space ~2 chars)
-    let em_spaces_per_line = 80 / 2;
+fn add_long_questions(mut docx: Docx, section: &Section, template_info: &template::TemplateInfo) -> Docx {
+    // Calculate actual number of characters that fit in usable width
+    let char_width_pt = 7.0;
+    let usable_width_pt = template_info.usable_width as f32 / 20.0; // Convert from twentieths of point to points
+    let chars_per_line = (usable_width_pt / char_width_pt) as usize;
+    // Use em-spaces which are wider than normal characters, so use fewer
+    let em_spaces_per_line = chars_per_line / 2; // Em-space is roughly 2 character widths
+    
     for (index, question) in section.questions.iter().enumerate() {
         if let Question::Text(text_q) = question {
             // Add numbered question with markdown support and List Number style
@@ -206,14 +218,14 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
             }
             docx = docx.add_paragraph(question_para);
 
-            // Add blank lines if not separate sheet using em-spaces to fill the line
+            // Add blank lines if not separate sheet using calculated width
             if !section.separate_sheet {
                 let num_lines = text_q.lines.unwrap_or(10);
                 for _ in 0..num_lines {
                     let blank_para = template::apply_line_spacing(
                         Paragraph::new().add_run(
                             Run::new()
-                                .add_text("\u{2003}".repeat(em_spaces_per_line)) // Em-spaces to fill line
+                                .add_text("\u{2003}".repeat(em_spaces_per_line)) // Em-spaces to fill actual line width
                                 .underline("single"),
                         ),
                         1.5,
@@ -226,7 +238,7 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
     docx
 }
 
-fn add_matching_v(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std::error::Error>> {
+fn add_matching_v(mut docx: Docx, section: &Section, _template_info: &template::TemplateInfo) -> Result<Docx, Box<dyn std::error::Error>> {
     let mut pairs = Vec::new();
     for question in &section.questions {
         if let Question::Matching(matching_q) = question {
@@ -273,7 +285,7 @@ fn add_matching_v(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
     Ok(docx)
 }
 
-fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std::error::Error>> {
+fn add_matching_h(mut docx: Docx, section: &Section, template_info: &template::TemplateInfo) -> Result<Docx, Box<dyn std::error::Error>> {
     let mut terms = Vec::new();
     let mut defs = Vec::new();
 
@@ -330,18 +342,36 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
     let term_table = Table::new(term_table_rows);
     docx = docx.add_table(term_table);
 
-    // Create matching table with better sized blanks
+    // Create matching table with proper calculated sizing
     let n_defs = defs.len();
     if n_defs > 0 {
         let match_rows = n_defs.div_ceil(2);
         let mut match_table_rows = Vec::new();
+
+        // Calculate proper column widths based on usable width (like Python version)
+        let usable_width = template_info.usable_width;
+        
+        // Calculate blank column width: font_size * num_em_spaces + padding (like Python)
+        let font_size_pt = 11.0;
+        let num_em_spaces = 5;
+        let padding_pt = 11.52; // 0.16 inch * 72 pt/inch = 11.52 pt
+        let blank_width_pt = font_size_pt * num_em_spaces as f32 + padding_pt;
+        let blank_width_twips = (blank_width_pt * 20.0) as u32; // Convert to twentieths of a point
+        
+        // Definition columns split the remaining width
+        let def_width_twips = (usable_width.saturating_sub(2 * blank_width_twips)) / 2;
+        
+        println!("Matching horizontal table sizing:");
+        println!("  Usable width: {} twips ({:.1} pt)", usable_width, usable_width as f32 / 20.0);
+        println!("  Blank columns: {} twips ({:.1} pt) each", blank_width_twips, blank_width_twips as f32 / 20.0);
+        println!("  Definition columns: {} twips ({:.1} pt) each", def_width_twips, def_width_twips as f32 / 20.0);
 
         for i in 0..match_rows {
             let mut row_cells = Vec::new();
 
             // Left pair
             if i * 2 < n_defs {
-                let blank_cell = TableCell::new().add_paragraph(
+                let blank_cell = TableCell::new().width(blank_width_twips as usize, WidthType::Dxa).add_paragraph(
                     Paragraph::new()
                         .add_run(
                             Run::new()
@@ -350,18 +380,18 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
                         ) // Five em-spaces like Python
                         .add_run(Run::new().add_text(" ")),
                 );
-                let def_cell = TableCell::new()
+                let def_cell = TableCell::new().width(def_width_twips as usize, WidthType::Dxa)
                     .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&defs[i * 2])));
                 row_cells.push(blank_cell);
                 row_cells.push(def_cell);
             } else {
-                row_cells.push(TableCell::new().add_paragraph(Paragraph::new()));
-                row_cells.push(TableCell::new().add_paragraph(Paragraph::new()));
+                row_cells.push(TableCell::new().width(blank_width_twips as usize, WidthType::Dxa).add_paragraph(Paragraph::new()));
+                row_cells.push(TableCell::new().width(def_width_twips as usize, WidthType::Dxa).add_paragraph(Paragraph::new()));
             }
 
             // Right pair
             if i * 2 + 1 < n_defs {
-                let blank_cell = TableCell::new().add_paragraph(
+                let blank_cell = TableCell::new().width(blank_width_twips as usize, WidthType::Dxa).add_paragraph(
                     Paragraph::new()
                         .add_run(
                             Run::new()
@@ -370,19 +400,19 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
                         ) // Five em-spaces like Python
                         .add_run(Run::new().add_text(" ")),
                 );
-                let def_cell = TableCell::new()
+                let def_cell = TableCell::new().width(def_width_twips as usize, WidthType::Dxa)
                     .add_paragraph(Paragraph::new().add_run(Run::new().add_text(&defs[i * 2 + 1])));
                 row_cells.push(blank_cell);
                 row_cells.push(def_cell);
             } else {
-                row_cells.push(TableCell::new().add_paragraph(Paragraph::new()));
-                row_cells.push(TableCell::new().add_paragraph(Paragraph::new()));
+                row_cells.push(TableCell::new().width(blank_width_twips as usize, WidthType::Dxa).add_paragraph(Paragraph::new()));
+                row_cells.push(TableCell::new().width(def_width_twips as usize, WidthType::Dxa).add_paragraph(Paragraph::new()));
             }
 
             match_table_rows.push(TableRow::new(row_cells));
         }
 
-        let match_table = Table::new(match_table_rows).clear_all_border();
+        let match_table = Table::new(match_table_rows).clear_all_border().width(usable_width as usize, WidthType::Dxa);
         docx = docx.add_table(match_table);
     }
 
@@ -422,6 +452,7 @@ fn add_oral_questions(
     mut docx: Docx,
     section: &Section,
     test_data: &TestData,
+    template_info: &template::TemplateInfo,
 ) -> Result<Docx, Box<dyn std::error::Error>> {
     // Add questions to main document with markdown support and List Number style
     for (index, question) in section.questions.iter().enumerate() {
@@ -436,7 +467,7 @@ fn add_oral_questions(
     }
 
     // Generate oral assessment sheet on a separate page
-    docx = add_oral_assessment_sheet(docx, section, test_data)?;
+    docx = add_oral_assessment_sheet(docx, section, test_data, template_info)?;
 
     Ok(docx)
 }
@@ -445,6 +476,7 @@ fn add_oral_assessment_sheet(
     mut docx: Docx,
     section: &Section,
     test_data: &TestData,
+    template_info: &template::TemplateInfo,
 ) -> Result<Docx, Box<dyn std::error::Error>> {
     // Add page break
     docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_break(BreakType::Page)));
@@ -456,6 +488,24 @@ fn add_oral_assessment_sheet(
             .style("Heading1")
             .align(AlignmentType::Center),
     );
+
+    // Calculate proper column widths based on actual usable width
+    let usable_width = template_info.usable_width;
+    
+    // Calculate minimum width for score column (4 em-spaces + padding) like Python version
+    let font_size_pt = 12.0;
+    let num_em_spaces = 4;
+    let padding_pt = 7.2; // 0.1 inch * 72 pt/inch = 7.2 pt
+    let score_width_pt = font_size_pt * num_em_spaces as f32 + padding_pt;
+    let score_width_twips = (score_width_pt * 20.0) as u32; // Convert to twentieths of a point
+    
+    // Question column gets the remaining width
+    let question_width_twips = usable_width.saturating_sub(score_width_twips);
+    
+    println!("Oral assessment table sizing:");
+    println!("  Usable width: {} twips ({:.1} pt)", usable_width, usable_width as f32 / 20.0);
+    println!("  Score column: {} twips ({:.1} pt)", score_width_twips, score_width_twips as f32 / 20.0);
+    println!("  Question column: {} twips ({:.1} pt)", question_width_twips, question_width_twips as f32 / 20.0);
 
     // Create table
     let mut table_rows = Vec::new();
@@ -475,7 +525,7 @@ fn add_oral_assessment_sheet(
         if let Question::Oral(oral_q) = question {
             // Main question row
             let question_cell = set_cell_margins(
-                TableCell::new().width(0, WidthType::Auto).add_paragraph(
+                TableCell::new().width(question_width_twips as usize, WidthType::Dxa).add_paragraph(
                     create_markdown_paragraph(&oral_q.text)
                         .line_spacing(LineSpacing::new().after(0)),
                 ),
@@ -483,7 +533,7 @@ fn add_oral_assessment_sheet(
 
             let score_cell = if oral_q.sub_points.is_empty() {
                 set_cell_margins(
-                    TableCell::new().width(1440, WidthType::Dxa).add_paragraph(
+                    TableCell::new().width(score_width_twips as usize, WidthType::Dxa).add_paragraph(
                         Paragraph::new()
                             .add_run(
                                 Run::new()
@@ -496,7 +546,7 @@ fn add_oral_assessment_sheet(
             } else {
                 set_cell_margins(
                     TableCell::new()
-                        .width(1440, WidthType::Dxa)
+                        .width(score_width_twips as usize, WidthType::Dxa)
                         .add_paragraph(Paragraph::new().line_spacing(LineSpacing::new().after(0))),
                 )
             };
@@ -506,7 +556,7 @@ fn add_oral_assessment_sheet(
             // Sub-point rows
             for sub_point in &oral_q.sub_points {
                 let sub_question_cell = set_cell_margins(
-                    TableCell::new().add_paragraph(
+                    TableCell::new().width(question_width_twips as usize, WidthType::Dxa).add_paragraph(
                         Paragraph::new()
                             .add_run(Run::new().add_text("\t"))
                             .add_run(Run::new().add_text(sub_point))
@@ -515,7 +565,7 @@ fn add_oral_assessment_sheet(
                 );
 
                 let sub_score_cell = set_cell_margins(
-                    TableCell::new().width(1440, WidthType::Dxa).add_paragraph(
+                    TableCell::new().width(score_width_twips as usize, WidthType::Dxa).add_paragraph(
                         Paragraph::new()
                             .add_run(
                                 Run::new()
@@ -545,7 +595,7 @@ fn add_oral_assessment_sheet(
     // Create only one cell, automatically spans both columns
     table_rows.push(TableRow::new(vec![notes_cell_with_blanks]));
 
-    let table = Table::new(table_rows).width(0, WidthType::Auto);
+    let table = Table::new(table_rows).width(usable_width as usize, WidthType::Dxa);
     docx = docx.add_table(table);
 
     Ok(docx)

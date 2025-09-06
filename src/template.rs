@@ -14,23 +14,39 @@ pub struct TemplateInfo {
     pub margin_right: Option<i32>,
     pub header_margin: Option<i32>,
     pub footer_margin: Option<i32>,
+    // Calculated usable dimensions (derived from page size and margins)
+    pub usable_width: u32,
+    pub usable_height: u32,
     // Parsed styles from template (style_id -> Style)
     pub parsed_styles: HashMap<String, docx_rs::Style>,
 }
 
 impl Default for TemplateInfo {
     fn default() -> Self {
+        // Default: 8.5 x 11 inches in twentieths of a point
+        let page_width = 12240;
+        let page_height = 15840;
+        // Default: 0.75 inch margins (like Python version)
+        let margin_left = 1080; // 0.75 inches in twentieths of a point
+        let margin_right = 1080;
+        let margin_top = 1080;
+        let margin_bottom = 1080;
+        
+        // Calculate usable dimensions
+        let usable_width = (page_width as i32 - margin_left - margin_right).max(0) as u32;
+        let usable_height = (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
+        
         Self {
-            // Default: 8.5 x 11 inches in twentieths of a point
-            page_width: Some(12240),
-            page_height: Some(15840),
-            // Default: 1 inch margins
-            margin_top: Some(1440),
-            margin_bottom: Some(1440),
-            margin_left: Some(1440),
-            margin_right: Some(1440),
+            page_width: Some(page_width),
+            page_height: Some(page_height),
+            margin_top: Some(margin_top),
+            margin_bottom: Some(margin_bottom),
+            margin_left: Some(margin_left),
+            margin_right: Some(margin_right),
             header_margin: Some(720),
             footer_margin: Some(720),
+            usable_width,
+            usable_height,
             // Empty styles map (defaults will be added later)
             parsed_styles: HashMap::new(),
         }
@@ -190,6 +206,20 @@ pub fn parse_template(template_path: &Path) -> Result<TemplateInfo, Box<dyn std:
                         converted_count
                     );
 
+                    // Calculate usable dimensions from template info
+                    let page_width = template_info.page_width.unwrap_or(12240);
+                    let page_height = template_info.page_height.unwrap_or(15840);
+                    let margin_left = template_info.margin_left.unwrap_or(1080);
+                    let margin_right = template_info.margin_right.unwrap_or(1080);
+                    let margin_top = template_info.margin_top.unwrap_or(1080);
+                    let margin_bottom = template_info.margin_bottom.unwrap_or(1080);
+                    
+                    template_info.usable_width = (page_width as i32 - margin_left - margin_right).max(0) as u32;
+                    template_info.usable_height = (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
+
+                    println!("✓ Calculated usable dimensions: {}x{} twentieths of point", 
+                             template_info.usable_width, template_info.usable_height);
+
                     // Check for essential styles
                     let has_title = template_info.parsed_styles.contains_key("Title");
                     let has_subtitle = template_info.parsed_styles.contains_key("Subtitle");
@@ -220,6 +250,17 @@ pub fn parse_template(template_path: &Path) -> Result<TemplateInfo, Box<dyn std:
 
                     // Even if parsing fails, we can still provide fallback behavior
                     // The template file was successfully loaded, so the --template argument is working
+                    
+                    // Calculate usable dimensions even for fallback
+                    let page_width = template_info.page_width.unwrap_or(12240);
+                    let page_height = template_info.page_height.unwrap_or(15840);
+                    let margin_left = template_info.margin_left.unwrap_or(1080);
+                    let margin_right = template_info.margin_right.unwrap_or(1080);
+                    let margin_top = template_info.margin_top.unwrap_or(1080);
+                    let margin_bottom = template_info.margin_bottom.unwrap_or(1080);
+                    
+                    template_info.usable_width = (page_width as i32 - margin_left - margin_right).max(0) as u32;
+                    template_info.usable_height = (page_height as i32 - margin_top - margin_bottom).max(0) as u32;
                 }
             }
 
@@ -244,10 +285,10 @@ pub fn apply_template_info(docx: Docx, template_info: &TemplateInfo) -> Docx {
 
     // Apply margins if available
     let margin = PageMargin::new()
-        .top(template_info.margin_top.unwrap_or(1440))
-        .bottom(template_info.margin_bottom.unwrap_or(1440))
-        .left(template_info.margin_left.unwrap_or(1440))
-        .right(template_info.margin_right.unwrap_or(1440))
+        .top(template_info.margin_top.unwrap_or(1080))
+        .bottom(template_info.margin_bottom.unwrap_or(1080))
+        .left(template_info.margin_left.unwrap_or(1080))
+        .right(template_info.margin_right.unwrap_or(1080))
         .header(template_info.header_margin.unwrap_or(720))
         .footer(template_info.footer_margin.unwrap_or(720));
 
