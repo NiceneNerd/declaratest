@@ -155,15 +155,17 @@ fn add_short_questions(mut docx: Docx, section: &Section) -> Docx {
             question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
 
-            // Add blank lines with better underline sizing
+            // Add blank lines using em-spaces like Python version  
             let num_lines = text_q.lines.unwrap_or(1);
             for _ in 0..num_lines {
                 let blank_para = template::apply_line_spacing(
-                    Paragraph::new().add_run(
-                        Run::new()
-                            .add_text("\t___________________________")
-                            .underline("single"),
-                    ), // Better sized underline
+                    Paragraph::new()
+                        .add_run(Run::new().add_text("\t"))
+                        .add_run(
+                            Run::new()
+                                .add_text("\u{2003}".repeat(20)) // Em-spaces instead of underscores
+                                .underline("single"),
+                        ),
                     1.5,
                 );
                 docx = docx.add_paragraph(blank_para);
@@ -183,16 +185,18 @@ fn add_long_questions(mut docx: Docx, section: &Section) -> Docx {
             question_para = template::apply_line_spacing(question_para, 1.0);
             docx = docx.add_paragraph(question_para);
 
-            // Add blank lines if not separate sheet with better sizing
+            // Add blank lines if not separate sheet using em-spaces
             if !section.separate_sheet {
                 let num_lines = text_q.lines.unwrap_or(10);
                 for _ in 0..num_lines {
                     let blank_para = template::apply_line_spacing(
-                        Paragraph::new().add_run(
-                            Run::new()
-                                .add_text("\t___________________________")
-                                .underline("single"),
-                        ), // Better sized underline
+                        Paragraph::new()
+                            .add_run(Run::new().add_text("\t"))
+                            .add_run(
+                                Run::new()
+                                    .add_text("\u{2003}".repeat(20)) // Em-spaces instead of underscores
+                                    .underline("single"),
+                            ),
                         1.5,
                     );
                     docx = docx.add_paragraph(blank_para);
@@ -228,7 +232,7 @@ fn add_matching_v(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
     for i in 0..lefts.len() {
         let left_cell = TableCell::new().add_paragraph(
             Paragraph::new()
-                .add_run(Run::new().add_text("_____").underline("single")) // Better sized blank
+                .add_run(Run::new().add_text("\u{2003}\u{2003}").underline("single")) // Two em-spaces like Python
                 .add_run(Run::new().add_text(format!(" {}", lefts[i]))),
         );
 
@@ -320,7 +324,7 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             if i * 2 < n_defs {
                 let blank_cell = TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("_______").underline("single")) // Better sized blank
+                        .add_run(Run::new().add_text("\u{2003}".repeat(5)).underline("single")) // Five em-spaces like Python
                         .add_run(Run::new().add_text(" ")),
                 );
                 let def_cell = TableCell::new()
@@ -336,7 +340,7 @@ fn add_matching_h(mut docx: Docx, section: &Section) -> Result<Docx, Box<dyn std
             if i * 2 + 1 < n_defs {
                 let blank_cell = TableCell::new().add_paragraph(
                     Paragraph::new()
-                        .add_run(Run::new().add_text("_______").underline("single")) // Better sized blank
+                        .add_run(Run::new().add_text("\u{2003}".repeat(5)).underline("single")) // Five em-spaces like Python
                         .add_run(Run::new().add_text(" ")),
                 );
                 let def_cell = TableCell::new()
@@ -366,13 +370,12 @@ fn add_blanks_questions(mut docx: Docx, section: &Section) -> Docx {
             // Add question number
             para = para.add_run(Run::new().add_text(format!("{}. ", index + 1)));
 
-            // Parse underscores in the text - improved blank sizes
+            // Parse underscores in the text - use em-spaces like Python version
             let parts: Vec<&str> = blank_q.text.split('_').collect();
             for (i, part) in parts.iter().enumerate() {
                 if i > 0 {
-                    // Add properly sized underlined blank for each underscore
-                    para = para.add_run(Run::new().add_text("__________").underline("single"));
-                    // Fixed-width blank
+                    // Add em-space for each underscore, underlined like Python version
+                    para = para.add_run(Run::new().add_text("\u{2003}").underline("single"));
                 }
 
                 if !part.is_empty() {
@@ -437,7 +440,7 @@ fn add_oral_assessment_sheet(
 
             let score_cell = if oral_q.sub_points.is_empty() {
                 TableCell::new().add_paragraph(
-                    Paragraph::new().add_run(Run::new().add_text("_______").underline("single")), // Better sized score blank
+                    Paragraph::new().add_run(Run::new().add_text("\u{2003}".repeat(4)).underline("single")), // Four em-spaces like Python
                 )
             } else {
                 TableCell::new().add_paragraph(Paragraph::new())
@@ -454,7 +457,7 @@ fn add_oral_assessment_sheet(
                 );
 
                 let sub_score_cell = TableCell::new().add_paragraph(
-                    Paragraph::new().add_run(Run::new().add_text("_______").underline("single")), // Better sized score blank
+                    Paragraph::new().add_run(Run::new().add_text("\u{2003}".repeat(4)).underline("single")), // Four em-spaces like Python
                 );
 
                 table_rows.push(TableRow::new(vec![sub_question_cell, sub_score_cell]));
