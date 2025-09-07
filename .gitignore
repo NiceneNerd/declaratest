@@ -6,3 +6,15 @@ test_*.docx
 /*.md
 !sample.md
 /venv
+.~lock*
+~$*
+
+# Added by cargo
+/target
+
+# Rust artifacts
+**/*.rs.bk
+
+# Test/verification scripts
+verify_docx.py
+detailed_analysis.py
