@@ -22,7 +22,7 @@ pub fn generate_docx(
 
     // Add header
     let header = Header::new().add_paragraph(create_header_paragraph());
-    docx = docx.header(header);
+    docx = docx.first_header(header);
 
     // Add subject and title
     docx = add_subject_and_title(docx, test_data);
@@ -533,6 +533,8 @@ fn add_oral_assessment_sheet(
     // Add page break
     docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_break(BreakType::Page)));
 
+    docx = docx.add_paragraph(create_header_paragraph());
+
     // Add header for assessment sheet using Heading 1 style
     docx = docx.add_paragraph(
         Paragraph::new()
@@ -606,6 +608,16 @@ fn add_oral_assessment_sheet(
 
             // Sub-point rows
             for sub_point in &oral_q.sub_points {
+                // Sub-point cells with grey borders (#808080). docx-rs exposes set_border per side.
+                // Correct API: TableCellBorder::new(position) then chain size/color/border_type
+                let grey_border = |pos: TableCellBorderPosition| {
+                    TableCellBorder::new(pos)
+                        .size(4)
+                        .color("D8D8D8")
+                        .border_type(BorderType::Single)
+                };
+
+                // Only interior borders grey: for left column cell, interior sides are Right plus horizontal separators
                 let sub_question_cell = set_cell_margins(
                     TableCell::new()
                         .width(question_width_twips as usize, WidthType::Dxa)
@@ -614,9 +626,13 @@ fn add_oral_assessment_sheet(
                                 .add_run(Run::new().add_text("\t"))
                                 .add_run(Run::new().add_text(sub_point))
                                 .line_spacing(LineSpacing::new().after(0)),
-                        ),
+                        )
+                        .set_border(grey_border(TableCellBorderPosition::Top))
+                        .set_border(grey_border(TableCellBorderPosition::Bottom))
+                        .set_border(grey_border(TableCellBorderPosition::Right)),
                 );
 
+                // For right column score cell, interior side is Left plus horizontal separators
                 let sub_score_cell = set_cell_margins(
                     TableCell::new()
                         .width(score_width_twips as usize, WidthType::Dxa)
@@ -628,7 +644,10 @@ fn add_oral_assessment_sheet(
                                         .underline("single"),
                                 )
                                 .line_spacing(LineSpacing::new().after(0)), // Four em-spaces like Python
-                        ),
+                        )
+                        .set_border(grey_border(TableCellBorderPosition::Top))
+                        .set_border(grey_border(TableCellBorderPosition::Bottom))
+                        .set_border(grey_border(TableCellBorderPosition::Left)),
                 );
 
                 table_rows.push(TableRow::new(vec![sub_question_cell, sub_score_cell]));
