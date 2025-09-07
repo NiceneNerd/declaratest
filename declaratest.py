@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "python-docx",
+# ]
+# ///
 from __future__ import annotations
 
 import re
