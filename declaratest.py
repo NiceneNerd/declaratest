@@ -214,7 +214,7 @@ def generate_docx(
         # Center header vertically in the top margin
         # Set header_distance to half of top_margin for vertical centering
         try:
-            section.header_distance = section.top_margin / 2
+            section.header_distance = int(section.top_margin / 2)
         except Exception:
             pass
 
@@ -315,7 +315,7 @@ def generate_docx(
         random.shuffle(rights)
         doc_section = doc.sections[0]
         usable_width = (
-            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
+            (doc_section.page_width or Pt(0)) - (doc_section.left_margin or Pt(0)) - (doc_section.right_margin or Pt(0))
         )
         display_rights: List[str] = [
             f"{chr(65 + i)}. {r}" for i, r in enumerate(rights)
@@ -325,16 +325,16 @@ def generate_docx(
         right_width = Pt(max_right_len * char_pt + 12)
         max_right_allowed = usable_width * 0.6
         if right_width > max_right_allowed:
-            right_width = max_right_allowed
+            right_width = Pt(max_right_allowed)  # type: ignore[arg-type]
         table = doc.add_table(rows=len(lefts), cols=2)
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.autofit = False
         if len(table.columns) >= 2:
-            table.columns[1].width = int(right_width)
-            left_width = usable_width - right_width
-            if left_width <= Pt(0):
-                left_width = usable_width - Pt(40)
-            table.columns[0].width = int(left_width)
+            table.columns[1].width = right_width
+            left_width = usable_width - right_width  # type: ignore[operator]
+            if left_width <= Pt(0):  # type: ignore[operator]
+                left_width = usable_width - Pt(40)  # type: ignore[operator]
+            table.columns[0].width = left_width  # type: ignore[assignment]
         for i in range(len(lefts)):
             row_cells = table.rows[i].cells
             row_cells[0].text = ""
@@ -376,7 +376,7 @@ def generate_docx(
             else:
                 max_rows = min(6, n_terms)
                 best_rows = 3
-                best_empty = None
+                best_empty: Optional[int] = None
                 for r in range(3, max_rows + 1):
                     cols_test = (n_terms + r - 1) // r
                     empty = r * cols_test - n_terms
@@ -435,12 +435,14 @@ def generate_docx(
         padding_inch = 0.16
         emu_per_inch = 914400
         padding_emu = int(padding_inch * emu_per_inch)
-        blank_w = int(font_size_pt * num_em_spaces * emu_per_pt) + padding_emu
+        blank_w_emu = font_size_pt * num_em_spaces * emu_per_pt + padding_emu
+        blank_w = Pt(blank_w_emu)
         doc_section = doc.sections[0]
-        usable_width = (
-            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
-        )
-        def_w = int((usable_width - 2 * blank_w) / 2)
+        page_width = doc_section.page_width or Pt(0)
+        left_margin = doc_section.left_margin or Pt(0)
+        right_margin = doc_section.right_margin or Pt(0)
+        usable_width = page_width - left_margin - right_margin  # type: ignore[operator]
+        def_w = Pt((usable_width.emu - 2 * blank_w.emu) / 2)  # type: ignore[attr-defined]
         match_table.columns[0].width = blank_w
         match_table.columns[1].width = def_w
         match_table.columns[2].width = blank_w
@@ -537,9 +539,10 @@ def generate_docx(
 
         # Set column widths - first column wider for questions, second narrower for scoring
         doc_section = doc.sections[0]
-        usable_width = (
-            doc_section.page_width - doc_section.left_margin - doc_section.right_margin
-        )
+        page_width = doc_section.page_width or Pt(0)
+        left_margin = doc_section.left_margin or Pt(0)
+        right_margin = doc_section.right_margin or Pt(0)
+        usable_width = page_width - left_margin - right_margin  # type: ignore[operator]
         # Calculate minimum width for score column (4 em-spaces + padding)
         font_size_pt = 12
         num_em_spaces = 4
@@ -550,7 +553,7 @@ def generate_docx(
             padding_inch * emu_per_inch
         )
         score_width = Pt(score_width_emu / emu_per_pt)
-        question_width = usable_width - score_width
+        question_width = Pt(usable_width.emu - score_width.emu)  # type: ignore[attr-defined]
 
         table.columns[0].width = question_width
         table.columns[1].width = score_width
