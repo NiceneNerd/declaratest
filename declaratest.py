@@ -330,11 +330,11 @@ def generate_docx(
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         table.autofit = False
         if len(table.columns) >= 2:
-            table.columns[1].width = right_width
+            table.columns[1].width = int(right_width)
             left_width = usable_width - right_width
             if left_width <= Pt(0):
                 left_width = usable_width - Pt(40)
-            table.columns[0].width = left_width
+            table.columns[0].width = int(left_width)
         for i in range(len(lefts)):
             row_cells = table.rows[i].cells
             row_cells[0].text = ""
@@ -365,21 +365,29 @@ def generate_docx(
             terms_t, defs_t = zip(*pairs)
             terms = list(terms_t)
             defs = list(defs_t)
+            random.shuffle(terms)
+            random.shuffle(defs)
         n_terms = len(terms)
         if n_terms:
-            best_rows = 1
-            best_empty = None
-            for r in range(1, 4):
-                cols = (n_terms + r - 1) // r
-                empty = r * cols - n_terms
-                if (
-                    best_empty is None
-                    or empty < best_empty
-                    or (empty == best_empty and r < best_rows)
-                ):
-                    best_rows = r
-                    best_empty = empty
-            rows = best_rows
+            if n_terms <= 6:
+                rows = 1
+            elif n_terms <= 14:
+                rows = 2
+            else:
+                max_rows = min(6, n_terms)
+                best_rows = 3
+                best_empty = None
+                for r in range(3, max_rows + 1):
+                    cols_test = (n_terms + r - 1) // r
+                    empty = r * cols_test - n_terms
+                    if (
+                        best_empty is None
+                        or empty < best_empty
+                        or (empty == best_empty and r < best_rows)
+                    ):
+                        best_rows = r
+                        best_empty = empty
+                rows = best_rows
             cols = (n_terms + rows - 1) // rows
             term_bank = doc.add_table(rows=rows, cols=cols)
             term_bank.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -457,7 +465,7 @@ def generate_docx(
                     _add_markdown_run(p, part)
 
     def _add_oral_questions(
-        doc: DocxDocument, section: Section, test_data: TestData
+        doc: DocxDocument, section: Section
     ) -> None:
         # Add questions to main document without blank lines (already handled in _add_section)
         for q in section["questions"]:  # type: ignore[assignment]
@@ -465,9 +473,7 @@ def generate_docx(
             _add_markdown_run(p, q["text"])  # type: ignore[index]
             p.paragraph_format.line_spacing = 1.0  # Single-spaced question text
             # Sub-points should NOT appear on the test page - only on assessment sheet
-
-        # Generate oral assessment sheet on a separate page
-        _add_oral_assessment_sheet(doc, section, test_data)
+        # Note: Assessment sheet generation is deferred until all sections are added
 
     def _set_cell_border(cell, **kwargs):
         """
@@ -649,6 +655,10 @@ def generate_docx(
     _set_page_layout(doc)
     _remove_leading_empty_paragraph(doc)
     _add_subject_and_title(doc, test_data)
+    
+    # Track oral sections to add their assessment sheets at the end
+    oral_sections: List[Section] = []
+    
     for section in test_data["sections"]:
         _add_section(doc, section)
         typ = section["type"]
@@ -663,8 +673,15 @@ def generate_docx(
         elif typ == "blanks":
             _add_blanks_questions(doc, section)
         elif typ == "oral":
-            _add_oral_questions(doc, section, test_data)
+            _add_oral_questions(doc, section)
+            oral_sections.append(section)
+    
     _finalize_paragraphs(doc)
+    
+    # Add all oral assessment sheets at the end
+    for section in oral_sections:
+        _add_oral_assessment_sheet(doc, section, test_data)
+    
     doc.save(output_path)
 
 
