@@ -5,6 +5,9 @@
 test_*.docx
 /*.md
 !sample.md
+!GUI_SPECIFICATIONS.md
+!SUMMARY.md
+!UPDATE_NOTES.md
 /venv
 .~lock*
 ~$*
