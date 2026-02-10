@@ -18,6 +18,10 @@ test_*.docx
 # Rust artifacts
 **/*.rs.bk
 
+# .NET build artifacts
+**/bin/
+**/obj/
+
 # Test/verification scripts
 verify_docx.py
 detailed_analysis.py
