@@ -4,7 +4,9 @@
 
 The project provides two implementations:
 - **Python version**: Simple, lightweight implementation using `python-docx`
-- **Rust version**: Feature-rich implementation with advanced template handling and styling
+- **Rust version**: Alternative implementation with similar core document generation and some extra template workarounds
+
+The Rust version is not inherently "more advanced" in the broad sense. Its extra templating features are primarily a workaround for a library limitation: unlike the Python version, the Rust DOCX APIs do not allow it to simply copy an existing template file and edit it in place, so it has to rebuild a document from scratch and port styles over from the original.
 
 ## Features
 
@@ -28,12 +30,13 @@ The project provides two implementations:
 ### Rust-Specific Features
 - **Template Creation**: Generate DOCX templates with built-in professional styles
 - **Template Parsing**: Extract and reuse styling from existing DOCX files
+- **Template Porting Workaround**: Rebuild a document from scratch and port styling from an old template when the API cannot directly clone/edit it
 - **Debug Mode**: Explore template API and styling information - shows detailed information about:
   - Document structure and element counts
   - All available styles (paragraph, character, table styles)
   - Font families available in the template
   - Template parsing success/failure details
-- **Advanced Styling**: Sophisticated page layout, margins, and typography control
+- **Styling Portability**: Bring over page layout, margins, and typography settings from an existing document even when direct template manipulation is unavailable
 
 ## Quick Start
 
@@ -263,7 +266,7 @@ Type: oral
 | Template file support | ✅ | ✅ |
 | Template creation | ❌ | ✅ |
 | Template debugging | ❌ | ✅ |
-| Advanced styling | Basic | Advanced |
+| Template workflow | Copy/edit existing template directly | Rebuild from scratch and port styles |
 | Performance | Good | Excellent |
 | Memory usage | Higher | Lower |
 | Build time | None | ~1-2 minutes |
@@ -271,7 +274,7 @@ Type: oral
 
 ## Contributing
 
-Both implementations welcome contributions! The Python version is great for quick prototyping and simple additions, while the Rust version is better for performance improvements and advanced features.
+Both implementations welcome contributions! The Python version is great for quick prototyping and simple additions, while the Rust version is a performance-focused alternative with extra template-generation workarounds because its DOCX API cannot directly clone and modify an existing template file the way the Python version can.
 
 ### Development Setup
 ```bash
